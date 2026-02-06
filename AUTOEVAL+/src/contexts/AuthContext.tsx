@@ -54,24 +54,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
+      // Helper: Auto-append domain if missing
+      let email = username.trim();
+      if (!email.includes('@')) {
+        email += '@school.com';
+      }
+
       // Backend expects: { email, password }
-      // We map username -> email
-      // SECURITY FIX: specific role via query param
-      const response = await api.post('/login?role=student', {
-        email: username,
+      // Using strict student login endpoint
+      const response = await api.post('/auth/student/login', {
+        email: email,
         password: password
       });
 
-      const { access_token } = response.data;
+      const { access_token, full_name, user_id } = response.data;
 
       // Save Token
       localStorage.setItem('token', access_token);
 
       // Create User Object
+      // Use backend provided full_name if available, else username
       const userData: User = {
-        username,
+        username: full_name || username,
         role: 'student',
-        rollNumber
+        rollNumber,
+        department: ""
       };
       setUser(userData);
       localStorage.setItem('autoeval_user', JSON.stringify(userData));
@@ -98,17 +105,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const response = await api.post('/login?role=teacher', {
+      // Using strict teacher login endpoint
+      const response = await api.post('/auth/teacher/login', {
         email: username,
         password: password
       });
 
-      const { access_token } = response.data;
+      const { access_token, full_name } = response.data;
 
       localStorage.setItem('token', access_token);
 
       const userData: User = {
-        username,
+        username: full_name || username,
         role: 'teacher'
       };
       setUser(userData);

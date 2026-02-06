@@ -45,7 +45,7 @@ const StudentLogin = () => {
 
       <div className="text-center mb-10 animate-fade-in">
         <div className="flex justify-center mb-4">
-           <Link to="/" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-light hover:opacity-80 transition-opacity">
+          <Link to="/" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-light hover:opacity-80 transition-opacity">
             <FileCheck2 className="h-6 w-6 text-primary" />
             <span className="text-xl font-bold text-foreground">AutoEval+</span>
           </Link>
@@ -67,15 +67,15 @@ const StudentLogin = () => {
               Access your student dashboard
             </CardDescription>
           </CardHeader>
-          
+
           <CardContent>
             <form onSubmit={handleStudentSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="studentUsername">Student Username</Label>
+                <Label htmlFor="studentUsername">Student Email</Label>
                 <Input
                   id="studentUsername"
-                  type="text"
-                  placeholder="Enter your username"
+                  type="email"
+                  placeholder="name@school.com"
                   value={studentUsername}
                   onChange={(e) => setStudentUsername(e.target.value)}
                   required
@@ -95,7 +95,7 @@ const StudentLogin = () => {
                   className="transition-base"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="studentPassword">Password</Label>
                 <Input
@@ -113,7 +113,7 @@ const StudentLogin = () => {
                 {isStudentLoading ? 'Signing in...' : 'Sign In as Student'}
               </Button>
             </form>
-            
+
             <div className="mt-6 text-center text-sm text-muted-foreground">
               <Link to="/login" className="text-primary hover:underline">
                 Back to Login Selection

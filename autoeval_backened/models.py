@@ -3,13 +3,15 @@
 SQLAlchemy ORM models for AutoEval+.
 
 Defines:
-- User: user accounts for authentication
-- AnswerSheet: uploaded answer sheets with OCR text
-- AnswerKey: answer keys for evaluation
-- Evaluation: evaluation results linking sheets and keys
+- User: Authentication identity (Teacher/Student)
+- Classroom: Classes managed by a teacher
+- Enrollment: Link between Student and Classroom
+- AnswerSheet: Student submissions
+- AnswerKey: Teacher solution keys
+- Evaluation: Results
 """
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Float, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, Float, func, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -17,47 +19,71 @@ from database import Base
 
 class User(Base):
     """
-    User accounts for authentication and authorization.
-
-    Fields:
-    - id: primary key
-    - email: unique email address
-    - hashed_password: bcrypt-hashed password
-    - role: user role (kept for future use, not enforced currently)
-    - is_active: soft-activation flag
-    - created_at: timestamp of account creation
+    Unified User model for both Teachers and Students.
+    Role determines access permissions.
     """
-
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="user")
+    full_name = Column(String(255), nullable=False)
+    role = Column(String(20), nullable=False)  # 'teacher' or 'student'
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
+    # Teacher: Has many classrooms
+    classrooms = relationship("Classroom", back_populates="teacher", cascade="all, delete-orphan")
+    
+    # Student: Has many enrollments (usually one per active class context)
+    enrollments = relationship("Enrollment", back_populates="student", cascade="all, delete-orphan")
+
+    # Common: Uploads
     answer_sheets = relationship("AnswerSheet", back_populates="user", cascade="all, delete-orphan")
     answer_keys = relationship("AnswerKey", back_populates="user", cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="user", cascade="all, delete-orphan")
 
 
+class Classroom(Base):
+    """
+    A class managed by a single teacher.
+    """
+    __tablename__ = "classrooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    teacher = relationship("User", back_populates="classrooms")
+    enrollments = relationship("Enrollment", back_populates="classroom", cascade="all, delete-orphan")
+
+
+class Enrollment(Base):
+    """
+    Link between a Student and a Classroom.
+    """
+    __tablename__ = "enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    classroom_id = Column(Integer, ForeignKey("classrooms.id"), nullable=False, index=True)
+    joined_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    student = relationship("User", back_populates="enrollments")
+    classroom = relationship("Classroom", back_populates="enrollments")
+
+    # Constraint: A student can join a specific class only once
+    __table_args__ = (UniqueConstraint('student_id', 'classroom_id', name='uq_student_class'),)
+
+
 class AnswerSheet(Base):
     """
-    Answer sheets uploaded by users.
-
-    Fields:
-    - id: primary key
-    - user_id: foreign key to users table
-    - filename: original filename
-    - file_path: storage path on server
-    - file_type: image/pdf
-    - ocr_text: extracted text from OCR
-    - ocr_method: tesseract or trocr
-    - created_at: upload timestamp
+    Answer sheets uploaded by users (typically students).
     """
-
     __tablename__ = "answer_sheets"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -65,8 +91,8 @@ class AnswerSheet(Base):
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(50), nullable=False)  # image/pdf
-    ocr_text = Column(Text, nullable=True)  # Can be null if OCR fails
-    ocr_method = Column(String(50), nullable=True)  # tesseract/trocr
+    ocr_text = Column(Text, nullable=True)
+    ocr_method = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -76,26 +102,15 @@ class AnswerSheet(Base):
 
 class AnswerKey(Base):
     """
-    Answer keys for evaluation.
-
-    Fields:
-    - id: primary key
-    - user_id: foreign key to users table (who uploaded it)
-    - filename: original filename
-    - file_path: storage path on server
-    - file_type: pdf/txt
-    - key_text: extracted or read text
-    - is_active: whether this is the current active key
-    - created_at: upload timestamp
+    Answer keys uploaded by users (typically teachers).
     """
-
     __tablename__ = "answer_keys"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
-    file_type = Column(String(50), nullable=False)  # pdf/txt
+    file_type = Column(String(50), nullable=False)
     key_text = Column(Text, nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -107,32 +122,21 @@ class AnswerKey(Base):
 
 class Evaluation(Base):
     """
-    Evaluation results linking answer sheets and answer keys.
-
-    Fields:
-    - id: primary key
-    - user_id: foreign key to users table (who performed evaluation)
-    - answer_sheet_id: foreign key to answer_sheets table
-    - answer_key_id: foreign key to answer_keys table
-    - student_text: OCR text from answer sheet
-    - key_text: text from answer key
-    - score: similarity score (0.0 to 1.0)
-    - feedback: evaluation feedback text
-    - similarity_score: raw similarity value
-    - created_at: evaluation timestamp
+    Evaluation results.
     """
-
     __tablename__ = "evaluations"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True) # Who ran the eval?
     answer_sheet_id = Column(Integer, ForeignKey("answer_sheets.id"), nullable=False, index=True)
     answer_key_id = Column(Integer, ForeignKey("answer_keys.id"), nullable=False, index=True)
+    
     student_text = Column(Text, nullable=False)
     key_text = Column(Text, nullable=False)
-    score = Column(Float, nullable=False)  # 0.0 to 1.0
+    score = Column(Float, nullable=False)
     feedback = Column(String(500), nullable=False)
-    similarity_score = Column(Float, nullable=False)  # Raw similarity value
+    similarity_score = Column(Float, nullable=False)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

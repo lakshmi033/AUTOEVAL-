@@ -79,9 +79,9 @@ export const ClassroomService = {
             // Map backend response (StudentProfileRead) to frontend Student interface
             return response.data.map((s: any) => ({
                 id: s.id,
-                name: s.full_name,
-                rollNumber: s.roll_number,
-                evaluated: false, // Default, logic to check evaluations will be added later if needed
+                name: s.full_name || s.email, // Fallback to email if name is missing
+                rollNumber: s.role_number || `S-${s.id}`, // Fallback ID-based roll number
+                evaluated: false,
                 email: s.email
             }));
         } catch (error) {

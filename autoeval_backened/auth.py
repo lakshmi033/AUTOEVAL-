@@ -30,7 +30,7 @@ from schemas import TokenData
 # NOTE: For a real deployment, move SECRET_KEY to an environment variable.
 SECRET_KEY = "CHANGE_THIS_SECRET_KEY_FOR_PRODUCTION_USE"  # <- replace in real deploy
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours for stability during testing
 
 # OAuth2 scheme used to extract "Authorization: Bearer <token>"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -71,14 +71,19 @@ def get_user_by_email(db: Session, email: str) -> Optional[User]:
     return db.query(User).filter(User.email == email).first()
 
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
+def authenticate_user(db: Session, email: str, password: str, required_role: Optional[str] = None) -> Optional[User]:
     """
-    Verify user credentials.
+    Verify user credentials AND role.
     Returns User if authentication is successful, otherwise None.
     """
     user = get_user_by_email(db, email=email)
     if not user:
         return None
+        
+    # Strict Role Check if specified
+    if required_role and user.role != required_role:
+        return None  # Role mismatch counts as failed auth
+        
     if not verify_password(password, user.hashed_password):
         return None
     return user

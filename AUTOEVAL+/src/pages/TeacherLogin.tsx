@@ -70,11 +70,11 @@ const TeacherLogin = () => {
                     <CardContent>
                         <form onSubmit={handleTeacherSubmit} className="space-y-4">
                             <div className="space-y-2">
-                                <Label htmlFor="teacherUsername">Teacher Username</Label>
+                                <Label htmlFor="teacherUsername">Teacher Email</Label>
                                 <Input
                                     id="teacherUsername"
-                                    type="text"
-                                    placeholder="Enter your username"
+                                    type="email"
+                                    placeholder="teacher@school.com"
                                     value={teacherUsername}
                                     onChange={(e) => setTeacherUsername(e.target.value)}
                                     required

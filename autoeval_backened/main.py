@@ -1,27 +1,32 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
 import shutil
 import os
-from ocr import extract_text_from_image, extract_text_from_pdf, validate_ocr_result
-from evaluation import evaluate_answer
+from typing import List
+
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
-from models import User
-from schemas import UserCreate, UserRead, UserLogin, Token
+from models import User, Classroom, Enrollment, AnswerSheet, AnswerKey, Evaluation
+from schemas import UserCreate, UserRead, UserLogin, Token, ClassroomRead, ClassroomCreate, StudentProfileRead
 from auth import (
     get_password_hash,
     authenticate_user,
     create_access_token,
     get_current_user,
 )
+from ocr import extract_text_from_image, extract_text_from_pdf, validate_ocr_result
+from evaluation import evaluate_answer
 
 app = FastAPI()
 
-# Create DB tables
-Base.metadata.create_all(bind=engine)
+# -------------------------------------------------------
+# STARTUP & CONFIG
+# -------------------------------------------------------
+# Database tables are now managed by rebuild_db.py
+# We do NOT auto-create tables here to prevent accidental overwrites
+# Base.metadata.create_all(bind=engine) 
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,45 +43,116 @@ os.makedirs(KEY_FOLDER, exist_ok=True)
 
 @app.get("/")
 def home():
-    return {"message": "AutoEval+ backend running"}
+    return {"message": "AutoEval+ backend running (Stable SQL Version)"}
 
 
 # -------------------------------------------------------
-# USER AUTH
+# AUTHENTICATION (STRICT ROLE SEPARATION)
 # -------------------------------------------------------
 
-@app.post("/register", response_model=UserRead, status_code=201)
-def register_user(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == user_in.email).first()
-    if existing:
-        raise HTTPException(
-            status_code=400, detail="A user with this email already exists."
-        )
-
-    hashed = get_password_hash(user_in.password)
-
-    user = User(email=user_in.email, hashed_password=hashed, role="user")
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@app.post("/login", response_model=Token)
-def login(user_in: UserLogin, db: Session = Depends(get_db)):
-    user = authenticate_user(db, email=user_in.email, password=user_in.password)
-
+@app.post("/auth/teacher/login", response_model=Token)
+def login_teacher(user_in: UserLogin, db: Session = Depends(get_db)):
+    """ Strict Teacher Login """
+    user = authenticate_user(db, email=user_in.email, password=user_in.password, required_role="teacher")
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Incorrect email or password.",
+            detail="Invalid credentials or not a teacher account.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
+    
     access_token = create_access_token(
-        data={"sub": user.email, "role": user.role}
+        data={"sub": user.email, "role": user.role, "user_id": user.id}
     )
-    return Token(access_token=access_token, token_type="bearer")
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "user_id": user.id, 
+        "role": user.role, 
+        "full_name": user.full_name
+    }
+
+
+@app.post("/auth/student/login", response_model=Token)
+def login_student(user_in: UserLogin, db: Session = Depends(get_db)):
+    """ Strict Student Login """
+    user = authenticate_user(db, email=user_in.email, password=user_in.password, required_role="student")
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials or not a student account.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "user_id": user.id}
+    )
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "user_id": user.id, 
+        "role": user.role, 
+        "full_name": user.full_name
+    }
+
+
+# Keep generic login for legacy, but role-aware
+@app.post("/login", response_model=Token)
+def login_generic(user_in: UserLogin, db: Session = Depends(get_db)):
+    user = authenticate_user(db, email=user_in.email, password=user_in.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "user_id": user.id}
+    )
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "user_id": user.id, 
+        "role": user.role, 
+        "full_name": user.full_name
+    }
+
+
+# -------------------------------------------------------
+# CLASSROOM MANAGEMENT (TEACHER ONLY)
+# -------------------------------------------------------
+
+@app.get("/classrooms", response_model=List[ClassroomRead])
+def get_classrooms(
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can view classrooms")
+    
+    return db.query(Classroom).filter(Classroom.teacher_id == current_user.id).all()
+
+
+@app.get("/classrooms/{classroom_id}/students", response_model=List[StudentProfileRead])
+def get_class_students(
+    classroom_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Teacher Check
+    if current_user.role != "teacher":
+         raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    # Verify ownership
+    classroom = db.query(Classroom).filter(Classroom.id == classroom_id, Classroom.teacher_id == current_user.id).first()
+    if not classroom:
+        raise HTTPException(status_code=404, detail="Classroom not found")
+
+    # Get students via Enrollment
+    students = (
+        db.query(User)
+        .join(Enrollment, User.id == Enrollment.student_id)
+        .filter(Enrollment.classroom_id == classroom_id)
+        .all()
+    )
+    return students
 
 
 # -------------------------------------------------------
@@ -95,57 +171,25 @@ def upload_answer_sheet(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        print("\n" + "="*60)
-        print("ANSWER SHEET UPLOAD DEBUG")
-        print(f"File: {file.filename}")
-        print(f"Type: {file.content_type}")
-        print("="*60)
+        print(f"DEBUG: Processing file {file.filename}")
 
         # Perform OCR
         try:
             if file.filename.lower().endswith(".pdf"):
-                print("Processing as PDF...")
                 text = extract_text_from_pdf(file_path, debug=True)
             else:
-                print("Processing as IMAGE...")
                 text = extract_text_from_image(file_path, debug=True)
 
-            print(f"OCR TEXT LENGTH: {len(text)}")
-
             if not text or not text.strip():
-                return {
-                    "ocr_text": "",
-                    "error": "No text extracted. Ensure the image is clear."
-                }
+                return {"ocr_text": "", "error": "No text extracted. Ensure the image is clear."}
 
             return {"ocr_text": text}
 
         except Exception as ocr_error:
-            error_msg = str(ocr_error)
-            print("OCR Error:", error_msg)
-
-            if "tesseract" in error_msg.lower():
-                raise HTTPException(
-                    status_code=500,
-                    detail="Tesseract not installed or missing."
-                )
-            elif "torch" in error_msg.lower():
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"TrOCR model error: {error_msg}"
-                )
-            else:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"OCR failed: {error_msg}"
-                )
+            raise HTTPException(status_code=500, detail=f"OCR failed: {str(ocr_error)}")
 
     except Exception as e:
-        print("Upload Error:", str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process file: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
 
 
 # -------------------------------------------------------
@@ -159,65 +203,29 @@ def upload_answer_key(
 ):
     try:
         file_path = os.path.join(KEY_FOLDER, file.filename)
-
-        # Save file
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-
-        print("\n" + "="*60)
-        print("ANSWER KEY UPLOAD DEBUG")
-        print(f"File: {file.filename}")
-        print(f"Type: {file.content_type}")
-        print("="*60)
 
         file_ext = file.filename.lower()
         key_text = ""
 
-        # PDF
         if file_ext.endswith(".pdf"):
-            print("Processing as PDF...")
             key_text = extract_text_from_pdf(file_path, debug=True)
-
-        # TXT
         elif file_ext.endswith(".txt"):
-            print("Processing as TXT...")
             with open(file_path, "r", encoding="utf-8") as f:
                 key_text = f.read()
-
-        # IMAGE
-        elif file_ext.endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp")):
-            print("Processing as IMAGE...")
+        elif file_ext.endswith((".png", ".jpg", ".jpeg")):
             key_text = extract_text_from_image(file_path, debug=True)
-
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="Unsupported file type. Use PDF, TXT, PNG, JPG, JPEG, BMP, GIF, TIFF, WEBP."
-            )
+            raise HTTPException(status_code=400, detail="Unsupported file type")
 
-        # Empty check
         if not key_text or not key_text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="No text extracted from answer key."
-            )
-
-        # Validate OCR result
-        is_valid, err = validate_ocr_result(key_text, "Answer-Key-Final")
-        if not is_valid:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid answer key text: {err}"
-            )
+            raise HTTPException(status_code=400, detail="No text extracted from answer key.")
 
         return {"key_text": key_text}
 
     except Exception as e:
-        print("Answer key upload error:", str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process answer key: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to process answer key: {str(e)}")
 
 
 # -------------------------------------------------------
@@ -231,28 +239,11 @@ async def evaluate(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        print("\n" + "="*60)
-        print("EVALUATION DEBUG")
-        print("="*60)
+        if not student_text.strip() or not key_text.strip():
+            raise HTTPException(status_code=400, detail="Empty text provided.")
 
-        if not student_text.strip():
-            raise HTTPException(status_code=400, detail="Student text is empty.")
-
-        if not key_text.strip():
-            raise HTTPException(status_code=400, detail="Answer key text is empty.")
-
-        try:
-            result = evaluate_answer(student_text, key_text)
-            return result
-
-        except Exception as eval_error:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Evaluation failed: {str(eval_error)}"
-            )
+        result = evaluate_answer(student_text, key_text)
+        return result
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected evaluation error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
