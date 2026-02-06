@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, Upload, FileText, ScanText, X } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
 
 interface LocationState {
   student?: {
@@ -32,13 +33,13 @@ const TeacherEvaluation = () => {
     const file = e.target.files?.[0];
     if (file) {
       setAnswerSheet(file);
-      
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setAnswerSheetPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
-      
+
       toast({
         title: "Answer Sheet Uploaded",
         description: `${file.name} has been uploaded successfully.`,
@@ -50,13 +51,13 @@ const TeacherEvaluation = () => {
     const file = e.target.files?.[0];
     if (file) {
       setAnswerKey(file);
-      
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setAnswerKeyPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
-      
+
       toast({
         title: "Answer Key Uploaded",
         description: `${file.name} has been uploaded successfully.`,
@@ -86,22 +87,49 @@ const TeacherEvaluation = () => {
     }
 
     setIsProcessing(true);
-    
-    setTimeout(() => {
-      setIsProcessing(false);
-      setExtractedText(
-        "Q1: The mitochondria is the powerhouse of the cell. It produces ATP through cellular respiration.\n\n" +
-        "Q2: Photosynthesis is the process by which plants convert light energy into chemical energy.\n\n" +
-        "Q3: DNA stands for Deoxyribonucleic acid and contains genetic instructions.\n\n" +
-        "Q4: The water cycle involves evaporation, condensation, and precipitation.\n\n" +
-        "Q5: Newton's first law states that an object at rest stays at rest unless acted upon by an external force.\n\n" +
-        "[Note: This is simulated OCR output. Real OCR will be integrated with backend.]"
-      );
-      toast({
-        title: "OCR Processing Complete",
-        description: "Text has been extracted from the answer sheet.",
+
+    try {
+      const formData = new FormData();
+      formData.append('file', answerSheet);
+
+      // Use the shared api instance which handles base URL and auth tokens
+      // Note: We need to set 'Content-Type': 'multipart/form-data', 
+      // but Axios often handles this automatically for FormData.
+      // Explicitly setting it just in case.
+      const response = await api.post('/upload-answer-sheet', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
-    }, 2000);
+
+      console.log("OCR Response:", response.data);
+
+      if (response.data.error) {
+        toast({
+          title: "OCR Failed",
+          description: response.data.error,
+          variant: "destructive",
+        });
+        setExtractedText("");
+      } else {
+        setExtractedText(response.data.ocr_text);
+        toast({
+          title: "OCR Processing Complete",
+          description: "Text has been extracted from the answer sheet using Cloud Engine.",
+        });
+      }
+
+    } catch (error: any) {
+      console.error("OCR Error:", error);
+      toast({
+        title: "OCR Error",
+        description: error.response?.data?.message || "Failed to process answer sheet. Please try again.",
+        variant: "destructive",
+      });
+      setExtractedText("");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleEvaluate = async () => {
@@ -124,11 +152,11 @@ const TeacherEvaluation = () => {
     }
 
     setIsProcessing(true);
-    
+
     // Simulate evaluation processing
     setTimeout(() => {
       setIsProcessing(false);
-      
+
       // Navigate to result page with evaluation data
       navigate(`/teacher/class/${classId}/result/${studentId}`, {
         state: {
@@ -154,20 +182,20 @@ const TeacherEvaluation = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="pt-24 pb-12 px-4">
         <div className="container mx-auto max-w-6xl">
           {/* Header */}
           <div className="mb-8 animate-fade-in">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => navigate(`/teacher/class/${classId}`)}
               className="mb-4"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Class {classId}
             </Button>
-            
+
             <h1 className="text-3xl font-bold mb-2">Evaluate Answer Sheet</h1>
             {student && (
               <p className="text-muted-foreground">
@@ -223,15 +251,15 @@ const TeacherEvaluation = () => {
                       </div>
                       {answerSheetPreview && (
                         <div className="border rounded-lg overflow-hidden bg-muted/30">
-                          <img 
-                            src={answerSheetPreview} 
-                            alt="Answer Sheet Preview" 
+                          <img
+                            src={answerSheetPreview}
+                            alt="Answer Sheet Preview"
                             className="w-full h-auto max-h-64 object-contain"
                           />
                         </div>
                       )}
-                      <Button 
-                        onClick={handleProcessOCR} 
+                      <Button
+                        onClick={handleProcessOCR}
                         disabled={isProcessing}
                         className="w-full"
                       >
@@ -286,9 +314,9 @@ const TeacherEvaluation = () => {
                       </div>
                       {answerKeyPreview && (
                         <div className="border rounded-lg overflow-hidden bg-muted/30 max-h-32">
-                          <img 
-                            src={answerKeyPreview} 
-                            alt="Answer Key Preview" 
+                          <img
+                            src={answerKeyPreview}
+                            alt="Answer Key Preview"
                             className="w-full h-auto object-contain"
                           />
                         </div>
@@ -330,8 +358,8 @@ const TeacherEvaluation = () => {
 
           {/* Evaluate Button */}
           <div className="mt-8 flex justify-center gap-4 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-            <Button 
-              size="lg" 
+            <Button
+              size="lg"
               onClick={handleEvaluate}
               disabled={isProcessing || !extractedText || !answerKey}
               className="px-12"

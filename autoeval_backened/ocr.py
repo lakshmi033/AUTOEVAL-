@@ -8,6 +8,7 @@ import os
 from typing import Tuple
 from trocr import extract_text_with_trocr
 from ocr_utils import invert_if_dark
+from external_ocr import extract_text_cloud
 
 # Configure Tesseract (Windows)
 if os.name == "nt":
@@ -111,7 +112,25 @@ def extract_text_from_image(path: str, debug=True) -> str:
         print(f"Size: {pil_img.size}, Mode: {pil_img.mode}")
         print("=" * 60)
 
-    # 1. If handwritten → TrOCR
+    # -------------------------------------------------------
+    # PRIMARY: High-Precision Cloud Engine (Stability Assurance)
+    # -------------------------------------------------------
+    print("!!! ATTEMPTING CLOUD OCR !!!")
+    cloud_text = extract_text_cloud(path)
+    if cloud_text:
+        if debug:
+            print("!!! OCR STRATEGY: CLOUD ENGINE (SUCCESSFUL) !!!")
+        return cloud_text
+    
+    print("!!! CLOUD OCR FAILED - FALLING BACK TO LOCAL !!!")
+    
+    # -------------------------------------------------------
+    # FALLBACK: Local Engines (Legacy Preservation)
+    # -------------------------------------------------------
+    if debug:
+        print("OCR Strategy: Local Fallback (Cloud failed/unavailable)")
+
+    # 1. If handwritten -> TrOCR
     if is_likely_handwritten(pil_img):
         try:
             trocr_text = extract_text_with_trocr(pil_img)

@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 
+# Environment Secrets
+.env
+.env.local
+
 # Node / Frontend
 node_modules/
 AUTOEVAL+/node_modules/
