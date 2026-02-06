@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI Backend",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--reload",
+        "--port",
+        "8000"
+      ],
+      "jinja": true,
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}/autoeval_backened",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/autoeval_backened"
+      },
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Start Backend + Frontend",
+      "configurations": ["Python: FastAPI Backend"],
+      "preLaunchTask": "Frontend: Start Dev Server"
+    }
+  ]
+}
+
