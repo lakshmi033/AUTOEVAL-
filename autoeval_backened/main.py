@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 from models import User, Classroom, Enrollment, AnswerSheet, AnswerKey, Evaluation
+import schemas
 from schemas import UserCreate, UserRead, UserLogin, Token, ClassroomRead, ClassroomCreate, StudentProfileRead
 from auth import (
     get_password_hash,
@@ -247,3 +248,59 @@ async def evaluate(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+
+
+# -------------------------------------------------------
+# REGISTRATION (NEW USER SIGNUP)
+# -------------------------------------------------------
+
+@app.post("/register", response_model=Token)
+def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
+    # 1. Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_in.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered. Please login.",
+        )
+
+    # 2. Prepare User Data
+    # Frontend sends 'username' as email. 
+    # If full_name is missing, we derive it from email logic or use a placeholder.
+    if user_in.full_name:
+        full_name = user_in.full_name
+    else:
+        # derive "James Smith" from "james.smith@..."
+        local_part = user_in.email.split("@")[0]
+        # replace . or _ with space and title case
+        full_name = local_part.replace(".", " ").replace("_", " ").title()
+
+    hashed_pw = get_password_hash(user_in.password)
+
+    new_user = User(
+        email=user_in.email,
+        hashed_password=hashed_pw,
+        full_name=full_name,
+        role=user_in.role
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # 3. Handle Role Specifics (Optional: Create Enrollment?)
+    # For now, we just create the User. 
+    # Students can be enrolled later or via a separate endpoint if needed.
+    
+    # 4. Auto-Login (Generate Token)
+    access_token = create_access_token(
+        data={"sub": new_user.email, "role": new_user.role, "user_id": new_user.id}
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": new_user.id,
+        "role": new_user.role,
+        "full_name": new_user.full_name
+    }

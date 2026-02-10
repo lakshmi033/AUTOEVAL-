@@ -18,7 +18,17 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(min_length=6, max_length=128)
+class UserCreate(UserBase):
+    password: str = Field(min_length=6, max_length=128)
     role: str = Field(pattern="^(teacher|student)$") # Strict role validation
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    role: str = Field(pattern="^(teacher|student)$")
+    roll_number: Optional[str] = None
+    department: Optional[str] = None
+    full_name: Optional[str] = None  # Frontend doesn't strictly send this yet, so optional
 
 class UserLogin(BaseModel):
     email: EmailStr
