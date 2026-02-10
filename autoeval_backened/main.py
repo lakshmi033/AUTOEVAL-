@@ -177,14 +177,14 @@ def upload_answer_sheet(
         # Perform OCR
         try:
             if file.filename.lower().endswith(".pdf"):
-                text = extract_text_from_pdf(file_path, debug=True)
+                text, source = extract_text_from_pdf(file_path, debug=True)
             else:
-                text = extract_text_from_image(file_path, debug=True)
+                text, source = extract_text_from_image(file_path, debug=True)
 
             if not text or not text.strip():
                 return {"ocr_text": "", "error": "No text extracted. Ensure the image is clear."}
 
-            return {"ocr_text": text}
+            return {"ocr_text": text, "source": source}
 
         except Exception as ocr_error:
             raise HTTPException(status_code=500, detail=f"OCR failed: {str(ocr_error)}")
@@ -211,19 +211,20 @@ def upload_answer_key(
         key_text = ""
 
         if file_ext.endswith(".pdf"):
-            key_text = extract_text_from_pdf(file_path, debug=True)
+            key_text, source = extract_text_from_pdf(file_path, debug=True)
         elif file_ext.endswith(".txt"):
             with open(file_path, "r", encoding="utf-8") as f:
                 key_text = f.read()
+            source = "Text File"
         elif file_ext.endswith((".png", ".jpg", ".jpeg")):
-            key_text = extract_text_from_image(file_path, debug=True)
+            key_text, source = extract_text_from_image(file_path, debug=True)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
         if not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from answer key.")
 
-        return {"key_text": key_text}
+        return {"key_text": key_text, "source": source}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process answer key: {str(e)}")
@@ -251,6 +252,16 @@ async def evaluate(
 
 
 # -------------------------------------------------------
+# PUBLIC DATA (FOR REGISTRATION)
+# -------------------------------------------------------
+
+@app.get("/public/classrooms", response_model=List[ClassroomRead])
+def get_public_classrooms(db: Session = Depends(get_db)):
+    """ Returns a list of all classrooms for the registration dropdown. """
+    return db.query(Classroom).all()
+
+
+# -------------------------------------------------------
 # REGISTRATION (NEW USER SIGNUP)
 # -------------------------------------------------------
 
@@ -265,14 +276,10 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
         )
 
     # 2. Prepare User Data
-    # Frontend sends 'username' as email. 
-    # If full_name is missing, we derive it from email logic or use a placeholder.
     if user_in.full_name:
         full_name = user_in.full_name
     else:
-        # derive "James Smith" from "james.smith@..."
         local_part = user_in.email.split("@")[0]
-        # replace . or _ with space and title case
         full_name = local_part.replace(".", " ").replace("_", " ").title()
 
     hashed_pw = get_password_hash(user_in.password)
@@ -288,10 +295,24 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
-    # 3. Handle Role Specifics (Optional: Create Enrollment?)
-    # For now, we just create the User. 
-    # Students can be enrolled later or via a separate endpoint if needed.
-    
+    # 3. Handle Role Specifics (Enrollment)
+    if new_user.role == "student":
+        target_classroom = None
+        
+        # A. User selected a specific class
+        if user_in.classroom_id:
+            target_classroom = db.query(Classroom).filter(Classroom.id == user_in.classroom_id).first()
+        
+        # B. Fallback: Auto-enroll in first available if no choice (or invalid choice)
+        if not target_classroom:
+            target_classroom = db.query(Classroom).first()
+            
+        if target_classroom:
+            enrollment = Enrollment(student_id=new_user.id, classroom_id=target_classroom.id)
+            db.add(enrollment)
+            db.commit()
+            print(f"DEBUG: Enrolled {new_user.email} in {target_classroom.name}")
+
     # 4. Auto-Login (Generate Token)
     access_token = create_access_token(
         data={"sub": new_user.email, "role": new_user.role, "user_id": new_user.id}

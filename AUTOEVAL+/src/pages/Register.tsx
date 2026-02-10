@@ -11,12 +11,14 @@ import { useTheme } from '@/hooks/use-theme';
 
 const Register = () => {
   const [role, setRole] = useState<UserRole>('student');
-  
+
   // Student fields
   const [studentUsername, setStudentUsername] = useState('');
   const [rollNumber, setRollNumber] = useState('');
   const [studentPassword, setStudentPassword] = useState('');
   const [studentConfirmPassword, setStudentConfirmPassword] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [classrooms, setClassrooms] = useState<{ id: number, name: string }[]>([]);
 
   // Teacher fields
   const [teacherUsername, setTeacherUsername] = useState('');
@@ -28,6 +30,22 @@ const Register = () => {
   const { registerStudent, registerTeacher, isAuthenticated, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+
+  // Fetch classrooms on mount
+  useEffect(() => {
+    const fetchClassrooms = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/public/classrooms');
+        if (response.ok) {
+          const data = await response.json();
+          setClassrooms(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch classrooms:", error);
+      }
+    };
+    fetchClassrooms();
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -42,13 +60,13 @@ const Register = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+
     if (role === 'student') {
-      await registerStudent(studentUsername, rollNumber, studentPassword, studentConfirmPassword);
+      await registerStudent(studentUsername, rollNumber, studentPassword, studentConfirmPassword, selectedClassId);
     } else {
       await registerTeacher(teacherUsername, teacherPassword, teacherConfirmPassword, department || undefined);
     }
-    
+
     setIsLoading(false);
   };
 
@@ -73,7 +91,7 @@ const Register = () => {
             Get started with automated answer evaluation
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Role Selection */}
@@ -128,7 +146,23 @@ const Register = () => {
                     className="transition-base"
                   />
                 </div>
-                
+
+                <div className="space-y-2">
+                  <Label htmlFor="className">Class</Label>
+                  <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classrooms.map((cls) => (
+                        <SelectItem key={cls.id} value={cls.id.toString()}>
+                          {cls.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="studentPassword">Password</Label>
                   <Input
@@ -174,7 +208,7 @@ const Register = () => {
                     className="transition-base"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="teacherPassword">Password</Label>
                   <Input

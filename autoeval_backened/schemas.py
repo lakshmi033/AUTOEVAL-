@@ -28,7 +28,8 @@ class UserRegister(BaseModel):
     role: str = Field(pattern="^(teacher|student)$")
     roll_number: Optional[str] = None
     department: Optional[str] = None
-    full_name: Optional[str] = None  # Frontend doesn't strictly send this yet, so optional
+    full_name: Optional[str] = None
+    classroom_id: Optional[int] = None  # New field for class selection
 
 class UserLogin(BaseModel):
     email: EmailStr

@@ -15,34 +15,35 @@ def configure_ocr_engine():
         return False
     return True
 
-def extract_text_cloud(image_path: str) -> str:
+def extract_text_cloud(image_path: str) -> tuple[str, str]:
     """
     Extract text using OCR.space API.
+    Returns: (text, source_name) or (None, None)
     """
     api_key = os.environ.get("OCR_SPACE_API_KEY")
     if not api_key:
-        return None
+        return None, None
 
     try:
         print(f"DEBUG: Cloud OCR (OCR.space) - Processing: {image_path}")
         
         # OCR.space API parameters
+        # Engine 2 is best for English text/numbers
         payload = {
             'apikey': api_key,
             'language': 'eng',
             'isOverlayRequired': 'false',
             'detectOrientation': 'true',
             'scale': 'true',
-            'OCREngine': '2'  # Engine 2 is often better for numbers/special chars
+            'OCREngine': '2'
         }
         
         with open(image_path, 'rb') as f:
-            # The API expects the file key to be 'filename' or just the file
             response = requests.post(
                 'https://api.ocr.space/parse/image',
                 files={'filename': f},
                 data=payload,
-                timeout=30
+                timeout=45 # Increased timeout for Engine 2
             )
             
         result = response.json()
@@ -51,23 +52,23 @@ def extract_text_cloud(image_path: str) -> str:
         if result.get('IsErroredOnProcessing'):
             error_msg = result.get('ErrorMessage')
             print(f"OCR.space API Error: {error_msg}")
-            return None
+            return None, None
             
         parsed_results = result.get('ParsedResults')
         if not parsed_results:
             print("OCR.space: No parsed results returned.")
-            return None
+            return None, None
             
         extracted_text = parsed_results[0].get('ParsedText')
         
         if not extracted_text:
             print("OCR.space: Returned empty text.")
-            return None
+            return None, None
             
         print("OCR.space: Extraction successful.")
-        print(f"DEBUG: Extracted text start: {extracted_text[:50]}...")
-        return extracted_text.strip()
+        # print(f"DEBUG: Extracted text start: {extracted_text[:50]}...")
+        return extracted_text.strip(), "OCR.space (Cloud)"
 
     except Exception as e:
         print(f"OCR.space Runtime Error: {e}")
-        return None
+        return None, None

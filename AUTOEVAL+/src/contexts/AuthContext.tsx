@@ -18,9 +18,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loginStudent: (username: string, rollNumber: string, password: string) => Promise<boolean>;
   loginTeacher: (username: string, password: string) => Promise<boolean>;
-  registerStudent: (username: string, rollNumber: string, password: string, confirmPassword: string) => Promise<boolean>;
+  registerStudent: (username: string, rollNumber: string, password: string, confirmPassword: string, classroomId?: string) => Promise<boolean>;
   registerTeacher: (username: string, password: string, confirmPassword: string, department?: string) => Promise<boolean>;
   logout: () => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,6 +36,7 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // Added isLoading state
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (token && savedUser) {
       setUser(JSON.parse(savedUser));
     }
+    setIsLoading(false); // Set loading to false after checking session
   }, []);
 
   const loginStudent = async (username: string, rollNumber: string, password: string): Promise<boolean> => {
@@ -223,7 +226,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       loginTeacher,
       registerStudent,
       registerTeacher,
-      logout
+      logout,
+      isLoading
     }}>
       {children}
     </AuthContext.Provider>

@@ -102,21 +102,29 @@ const TeacherEvaluation = () => {
         },
       });
 
-      console.log("OCR Response:", response.data);
+      const data = response.data;
 
-      if (response.data.error) {
+      if (data.error) {
         toast({
-          title: "OCR Failed",
-          description: response.data.error,
+          title: "OCR Warning",
+          description: data.error,
           variant: "destructive",
         });
-        setExtractedText("");
+        setExtractedText(""); // Clear extracted text if there's an error
       } else {
-        setExtractedText(response.data.ocr_text);
-        toast({
-          title: "OCR Processing Complete",
-          description: "Text has been extracted from the answer sheet using Cloud Engine.",
-        });
+        setExtractedText(data.ocr_text);
+        if (data.source) {
+          toast({
+            title: "OCR Successful",
+            description: `Extracted using: ${data.source}`,
+            variant: data.source.includes("Cloud") ? "default" : "destructive", // Warn if local
+          });
+        } else {
+          toast({
+            title: "OCR Processing Complete",
+            description: "Text has been extracted from the answer sheet.",
+          });
+        }
       }
 
     } catch (error: any) {

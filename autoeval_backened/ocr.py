@@ -103,7 +103,7 @@ def is_likely_handwritten(_img: Image.Image) -> bool:
 # ----------------------------------------------------------
 # Main: extract text from image
 # ----------------------------------------------------------
-def extract_text_from_image(path: str, debug=True) -> str:
+def extract_text_from_image(path: str, debug=True) -> Tuple[str, str]:
     pil_img = Image.open(path)
 
     if debug:
@@ -116,11 +116,11 @@ def extract_text_from_image(path: str, debug=True) -> str:
     # PRIMARY: High-Precision Cloud Engine (Stability Assurance)
     # -------------------------------------------------------
     print("!!! ATTEMPTING CLOUD OCR !!!")
-    cloud_text = extract_text_cloud(path)
+    cloud_text, source = extract_text_cloud(path)
     if cloud_text:
         if debug:
             print("!!! OCR STRATEGY: CLOUD ENGINE (SUCCESSFUL) !!!")
-        return cloud_text
+        return cloud_text, source
     
     print("!!! CLOUD OCR FAILED - FALLING BACK TO LOCAL !!!")
     
@@ -143,7 +143,7 @@ def extract_text_from_image(path: str, debug=True) -> str:
                 norm = normalize_text(raw)
                 ok, msg = validate_ocr_result(norm, "TrOCR")
                 if ok:
-                    return norm
+                    return norm, "TrOCR (Local)"
                 else:
                     if debug:
                         print("TrOCR validation failed:", msg)
@@ -201,10 +201,10 @@ def extract_text_from_image(path: str, debug=True) -> str:
     if best_text:
         if debug:
             print("\n" + "=" * 60)
-            print("OCR SUCCESS")
+            print("OCR SUCCESS (Local)")
             print(best_text[:200])
             print("=" * 60)
-        return best_text
+        return best_text, "Tesseract (Local)"
 
     raise Exception("Failed to extract meaningful text from image")
 
@@ -212,7 +212,7 @@ def extract_text_from_image(path: str, debug=True) -> str:
 # ----------------------------------------------------------
 # Extract text from PDF
 # ----------------------------------------------------------
-def extract_text_from_pdf(path: str, debug=True) -> str:
+def extract_text_from_pdf(path: str, debug=True) -> Tuple[str, str]:
     doc = fitz.open(path)
     full = ""
 
@@ -223,6 +223,7 @@ def extract_text_from_pdf(path: str, debug=True) -> str:
         print("=" * 60)
 
     try:
+        source_used = "PDF-Direct"
         for i, page in enumerate(doc):
             if debug:
                 print(f"-- Page {i+1} --")
@@ -237,6 +238,9 @@ def extract_text_from_pdf(path: str, debug=True) -> str:
                     continue
 
             # 2. OCR scanned page
+            # Note: We use local OCR for single pages of PDF to avoid slamming cloud API for every page
+            # Or we could use Cloud if critical. For now, defaulting to local wrapper call which *tries* cloud if configured?
+            # actually extract_text_from_image tries cloud first. 
             if debug:
                 print("Using OCR for scanned page")
 
@@ -247,10 +251,11 @@ def extract_text_from_pdf(path: str, debug=True) -> str:
             pil_img.save(temp)
 
             try:
-                txt2 = extract_text_from_image(temp, debug=False)
+                txt2, src = extract_text_from_image(temp, debug=False)
                 ok, _ = validate_ocr_result(txt2, f"PDF-Page{i+1}-OCR")
                 if ok:
                     full += txt2 + "\n"
+                    source_used = src # Update source if we used OCR
             except:
                 pass
             finally:
@@ -266,7 +271,7 @@ def extract_text_from_pdf(path: str, debug=True) -> str:
         if not ok:
             raise Exception(msg)
 
-        return full
+        return full, source_used
 
     except Exception as e:
         doc.close()
