@@ -1,37 +1,19 @@
-
 import os
-import google.generativeai as genai
+from external_ocr import configure_ocr_engine, extract_text_cloud
 from dotenv import load_dotenv
 
-def test_connection():
-    load_dotenv()
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    if not api_key:
-        print("FAIL: No API Key found in environment.")
-        return
+load_dotenv()
 
-    print(f"DEBUG: Key found (starts with {api_key[:5]}...)")
-    
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        # Simple generation test
-        response = model.generate_content("Reply with 'OK' if you see this.")
-        
-        print("\n" + "="*40)
-        print("CONNECTION TEST RESULT")
-        print("="*40)
-        print(f"Response: {response.text.strip()}")
-        print("STATUS: SUCCESS")
-        
-    except Exception as e:
-        print("\n" + "="*40)
-        print("CONNECTION TEST RESULT")
-        print("="*40)
-        print(f"Error: {str(e)}")
-        print("STATUS: FAILED")
+print("--- ORC.space Connection Check ---")
 
-if __name__ == "__main__":
-    test_connection()
+if configure_ocr_engine():
+    print("API Key found.")
+    
+    # Create a dummy image for testing if one doesn't exist, or just skip
+    # For connection check, we just want to know if the key is loaded.
+    # To test actual OCR, we'd need a file.
+    
+    print("Configuration: OK")
+    print(f"Key: {os.environ.get('OCR_SPACE_API_KEY')[:5]}...")
+else:
+    print("FAILED: API Key not found.")

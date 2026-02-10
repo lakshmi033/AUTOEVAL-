@@ -1,73 +1,73 @@
-
 import os
-import google.generativeai as genai
-from PIL import Image
+import requests
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Stealthy configuration
-# We use a generic name for the function to fit the "standard OCR" narrative
 def configure_ocr_engine():
     """
-    Initialize the high-precision text extraction engine.
+    Check for OCR.space API key.
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("OCR_SPACE_API_KEY")
     if not api_key:
-        print("External OCR Engine: No API configuration found. Switch to local.")
+        print("External OCR Engine: No OCR_SPACE_API_KEY found.")
         return False
-    
-    try:
-        genai.configure(api_key=api_key)
-        return True
-    except Exception as e:
-        print(f"External OCR Engine Configuration Failed: {e}")
-        return False
+    return True
 
 def extract_text_cloud(image_path: str) -> str:
     """
-    Perform high-precision text extraction using cloud compute.
-    Returns extracted text string or None if extraction fails.
+    Extract text using OCR.space API.
     """
-    if not configure_ocr_engine():
+    api_key = os.environ.get("OCR_SPACE_API_KEY")
+    if not api_key:
         return None
 
     try:
-        print(f"DEBUG: Cloud OCR - Image Path: {image_path}")
-        print(f"DEBUG: Cloud OCR - Key Loaded? {'Yes' if configure_ocr_engine() else 'No'}")
+        print(f"DEBUG: Cloud OCR (OCR.space) - Processing: {image_path}")
         
-        # Load the image
-        img = Image.open(image_path)
-        print(f"DEBUG: Image Size: {img.size}")
+        # OCR.space API parameters
+        payload = {
+            'apikey': api_key,
+            'language': 'eng',
+            'isOverlayRequired': 'false',
+            'detectOrientation': 'true',
+            'scale': 'true',
+            'OCREngine': '2'  # Engine 2 is often better for numbers/special chars
+        }
         
-        # Use a lightweight stable model for pure text extraction
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        with open(image_path, 'rb') as f:
+            # The API expects the file key to be 'filename' or just the file
+            response = requests.post(
+                'https://api.ocr.space/parse/image',
+                files={'filename': f},
+                data=payload,
+                timeout=30
+            )
+            
+        result = response.json()
         
-        print("DEBUG: Sending request to Gemini...")
-        # Pure data extraction prompt - no "AI" personality
-        response = model.generate_content([
-            "Extract all text from this image exactly as it appears. Do not add any conversational filler. Maintain line breaks where possible.",
-            img
-        ])
-        
-        print(f"DEBUG: Gemini Response Received. Candidate Safety: {response.prompt_feedback}")
-        
-        try:
-            text = response.text.strip()
-        except ValueError:
-            print("DEBUG: Gemini blocked the response or returned no text.")
-            return None
-
-        if not text:
-            print("External OCR: Returned empty result.")
+        # Check for API errors
+        if result.get('IsErroredOnProcessing'):
+            error_msg = result.get('ErrorMessage')
+            print(f"OCR.space API Error: {error_msg}")
             return None
             
-        print("External OCR: Extraction successful.")
-        print(f"DEBUG: Extracted Text Start: {text[:50]}...")
-        return text
+        parsed_results = result.get('ParsedResults')
+        if not parsed_results:
+            print("OCR.space: No parsed results returned.")
+            return None
+            
+        extracted_text = parsed_results[0].get('ParsedText')
+        
+        if not extracted_text:
+            print("OCR.space: Returned empty text.")
+            return None
+            
+        print("OCR.space: Extraction successful.")
+        print(f"DEBUG: Extracted text start: {extracted_text[:50]}...")
+        return extracted_text.strip()
 
     except Exception as e:
-        print(f"External OCR Runtime Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"OCR.space Runtime Error: {e}")
         return None
