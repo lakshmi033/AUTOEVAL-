@@ -20,3 +20,8 @@ AUTOEVAL+/.vite/
 *.tmp
 *.cache
 .pytest_cache/
+
+# Database & User Uploads
+*.db
+*.sqlite
+autoeval_backened/uploads/

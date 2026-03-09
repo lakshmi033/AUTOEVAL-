@@ -1,0 +1,184 @@
+﻿.gitignore
+.vscode/launch.json
+.vscode/settings.json
+.vscode/tasks.json
+AUTOEVAL+/.gitignore
+AUTOEVAL+/README.md
+AUTOEVAL+/SETUP.md
+AUTOEVAL+/bun.lockb
+AUTOEVAL+/components.json
+AUTOEVAL+/eslint.config.js
+AUTOEVAL+/index.html
+AUTOEVAL+/package-lock.json
+AUTOEVAL+/package.json
+AUTOEVAL+/postcss.config.js
+AUTOEVAL+/public/favicon.svg
+AUTOEVAL+/public/placeholder.svg
+AUTOEVAL+/public/robots.txt
+AUTOEVAL+/src/App.css
+AUTOEVAL+/src/App.tsx
+AUTOEVAL+/src/components/FeatureCard.tsx
+AUTOEVAL+/src/components/Navbar.tsx
+AUTOEVAL+/src/components/ProtectedRoute.tsx
+AUTOEVAL+/src/components/ui/accordion.tsx
+AUTOEVAL+/src/components/ui/alert-dialog.tsx
+AUTOEVAL+/src/components/ui/alert.tsx
+AUTOEVAL+/src/components/ui/aspect-ratio.tsx
+AUTOEVAL+/src/components/ui/avatar.tsx
+AUTOEVAL+/src/components/ui/badge.tsx
+AUTOEVAL+/src/components/ui/breadcrumb.tsx
+AUTOEVAL+/src/components/ui/button.tsx
+AUTOEVAL+/src/components/ui/calendar.tsx
+AUTOEVAL+/src/components/ui/card.tsx
+AUTOEVAL+/src/components/ui/carousel.tsx
+AUTOEVAL+/src/components/ui/chart.tsx
+AUTOEVAL+/src/components/ui/checkbox.tsx
+AUTOEVAL+/src/components/ui/collapsible.tsx
+AUTOEVAL+/src/components/ui/command.tsx
+AUTOEVAL+/src/components/ui/context-menu.tsx
+AUTOEVAL+/src/components/ui/dialog.tsx
+AUTOEVAL+/src/components/ui/drawer.tsx
+AUTOEVAL+/src/components/ui/dropdown-menu.tsx
+AUTOEVAL+/src/components/ui/form.tsx
+AUTOEVAL+/src/components/ui/hover-card.tsx
+AUTOEVAL+/src/components/ui/input-otp.tsx
+AUTOEVAL+/src/components/ui/input.tsx
+AUTOEVAL+/src/components/ui/label.tsx
+AUTOEVAL+/src/components/ui/menubar.tsx
+AUTOEVAL+/src/components/ui/navigation-menu.tsx
+AUTOEVAL+/src/components/ui/pagination.tsx
+AUTOEVAL+/src/components/ui/popover.tsx
+AUTOEVAL+/src/components/ui/progress.tsx
+AUTOEVAL+/src/components/ui/radio-group.tsx
+AUTOEVAL+/src/components/ui/resizable.tsx
+AUTOEVAL+/src/components/ui/scroll-area.tsx
+AUTOEVAL+/src/components/ui/select.tsx
+AUTOEVAL+/src/components/ui/separator.tsx
+AUTOEVAL+/src/components/ui/sheet.tsx
+AUTOEVAL+/src/components/ui/sidebar.tsx
+AUTOEVAL+/src/components/ui/skeleton.tsx
+AUTOEVAL+/src/components/ui/slider.tsx
+AUTOEVAL+/src/components/ui/sonner.tsx
+AUTOEVAL+/src/components/ui/switch.tsx
+AUTOEVAL+/src/components/ui/table.tsx
+AUTOEVAL+/src/components/ui/tabs.tsx
+AUTOEVAL+/src/components/ui/textarea.tsx
+AUTOEVAL+/src/components/ui/toast.tsx
+AUTOEVAL+/src/components/ui/toaster.tsx
+AUTOEVAL+/src/components/ui/toggle-group.tsx
+AUTOEVAL+/src/components/ui/toggle.tsx
+AUTOEVAL+/src/components/ui/tooltip.tsx
+AUTOEVAL+/src/components/ui/use-toast.ts
+AUTOEVAL+/src/contexts/AuthContext.tsx
+AUTOEVAL+/src/hooks/use-mobile.tsx
+AUTOEVAL+/src/hooks/use-theme.tsx
+AUTOEVAL+/src/hooks/use-toast.ts
+AUTOEVAL+/src/index.css
+AUTOEVAL+/src/lib/api.ts
+AUTOEVAL+/src/lib/utils.ts
+AUTOEVAL+/src/main.tsx
+AUTOEVAL+/src/pages/ClassDetail.tsx
+AUTOEVAL+/src/pages/EvaluationResult.tsx
+AUTOEVAL+/src/pages/Index.tsx
+AUTOEVAL+/src/pages/Login.tsx
+AUTOEVAL+/src/pages/NotFound.tsx
+AUTOEVAL+/src/pages/Register.tsx
+AUTOEVAL+/src/pages/StudentDashboard.tsx
+AUTOEVAL+/src/pages/StudentLogin.tsx
+AUTOEVAL+/src/pages/TeacherDashboard.tsx
+AUTOEVAL+/src/pages/TeacherEvaluation.tsx
+AUTOEVAL+/src/pages/TeacherLogin.tsx
+AUTOEVAL+/src/services/ClassroomService.ts
+AUTOEVAL+/src/vite-env.d.ts
+AUTOEVAL+/tailwind.config.ts
+AUTOEVAL+/tsconfig.app.json
+AUTOEVAL+/tsconfig.json
+AUTOEVAL+/tsconfig.node.json
+AUTOEVAL+/vite.config.ts
+INSTALL_TESSERACT.md
+QUICK_START.md
+README.md
+SETUP_INSTRUCTIONS.md
+all_logins.md
+all_student_logins.md
+autoeval_backened/answer_keys/CIVIC.pdf
+autoeval_backened/answer_keys/WhatsApp Image 2025-12-13 at 7.06.51 PM.jpeg
+autoeval_backened/answer_keys/WhatsApp Image 2025-12-13 at 7.06.52 PM.jpeg
+autoeval_backened/answer_keys/WhatsApp Image 2025-12-14 at 12.08.52 AM.jpeg
+autoeval_backened/answer_keys/answer_key.pdf
+autoeval_backened/answer_keys/global warming ans key.jpeg
+autoeval_backened/answer_keys/key.jpeg
+autoeval_backened/answer_keys/machine learning answer.jpeg
+autoeval_backened/answer_keys/photo_2026-01-08_12-36-33.jpg
+autoeval_backened/answer_keys/sample_answer_key.pdf
+autoeval_backened/architecture_plan.md
+autoeval_backened/auth.py
+autoeval_backened/autoeval.db
+autoeval_backened/database.py
+autoeval_backened/external_ocr.py
+autoeval_backened/llm_evaluation.py
+autoeval_backened/main.py
+autoeval_backened/models.py
+autoeval_backened/rebuild_db.py
+autoeval_backened/requirements.txt
+autoeval_backened/sbert_engine.py
+autoeval_backened/schemas.py
+autoeval_backened/uploads/1 civics data.pdf
+autoeval_backened/uploads/Admit Card.pdf
+autoeval_backened/uploads/CIVIC.pdf
+autoeval_backened/uploads/Civics_Answer_Key.pdf
+autoeval_backened/uploads/Civics_Student_Answer_Sheet.pdf
+autoeval_backened/uploads/DocScanner 7 Jan 2026 11-21 am.pdf
+autoeval_backened/uploads/GLOABL KEY.jpg
+autoeval_backened/uploads/GLOBAL ANSWER.jpg
+autoeval_backened/uploads/Global_Warming_Answer_Key.png
+autoeval_backened/uploads/L.RESUME.pdf
+autoeval_backened/uploads/ML ANSWER.jpeg
+autoeval_backened/uploads/ML KEY.jpeg
+autoeval_backened/uploads/ML student.jpeg
+autoeval_backened/uploads/Photo.jpeg
+autoeval_backened/uploads/SP-DSE Process - Sample Question Paper_Nov. 2025.pdf
+autoeval_backened/uploads/Screenshot (2).png
+autoeval_backened/uploads/Screenshot (7).png
+autoeval_backened/uploads/Screenshot 2024-06-07 002843.png
+autoeval_backened/uploads/Screenshot 2026-02-13 000723.png
+autoeval_backened/uploads/Screenshot 2026-02-13 000732.png
+autoeval_backened/uploads/Screenshot 2026-02-13 000747.png
+autoeval_backened/uploads/Sentence_BERT_paper[1].pdf
+autoeval_backened/uploads/WhatsApp Image 2025-12-13 at 7.06.51 PM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2025-12-13 at 7.06.52 PM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2025-12-14 at 12.08.52 AM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-01-07 at 10.22.26 AM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-01-07 at 10.25.59 AM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-01-07 at 10.32.23 AM (1).jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-01-07 at 10.32.23 AM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-01-07 at 10.39.04 AM.jpeg
+autoeval_backened/uploads/WhatsApp Image 2026-02-17 at 12.28.35 PM.jpeg
+autoeval_backened/uploads/answer_key.pdf
+autoeval_backened/uploads/answer_key_demo.pdf
+autoeval_backened/uploads/civicsanskey.pdf
+autoeval_backened/uploads/cursive.jpeg
+autoeval_backened/uploads/cursive.png
+autoeval_backened/uploads/devihand.jpeg
+autoeval_backened/uploads/global warming stu ans.jpeg
+autoeval_backened/uploads/handwriting.jpg
+autoeval_backened/uploads/handwriting.pdf
+autoeval_backened/uploads/handwriting_20260107_112248_via_10015_io.pdf
+autoeval_backened/uploads/handwritten.jpeg
+autoeval_backened/uploads/key.jpeg
+autoeval_backened/uploads/machine learning answer.jpeg
+autoeval_backened/uploads/ocr demo.jpeg
+autoeval_backened/uploads/ocrdemo.jpeg
+autoeval_backened/uploads/photo_2026-01-08_12-36-35.jpg
+autoeval_backened/uploads/photo_2026-01-08_12-36-36.jpg
+autoeval_backened/uploads/photo_2026-01-08_12-36-38.jpg
+autoeval_backened/uploads/sample.pdf
+autoeval_backened/uploads/sample_answer_key.pdf
+autoeval_backened/uploads/student.jpeg
+autoeval_backened/uploads/student_answer.pdf
+autoeval_backened/uploads/student_handwritten_answers.pdf
+autoeval_backened/uploads/student_handwritten_realistic.pdf
+autoeval_backened/uploads/uploaded_image_1767262711717.png
+login_details.md
+package-lock.json
+setup.ps1
