@@ -14,7 +14,6 @@ const Register = () => {
 
   // Student fields
   const [studentUsername, setStudentUsername] = useState('');
-  const [rollNumber, setRollNumber] = useState('');
   const [studentPassword, setStudentPassword] = useState('');
   const [studentConfirmPassword, setStudentConfirmPassword] = useState('');
   const [selectedClassId, setSelectedClassId] = useState<string>('');
@@ -25,6 +24,7 @@ const Register = () => {
   const [teacherPassword, setTeacherPassword] = useState('');
   const [teacherConfirmPassword, setTeacherConfirmPassword] = useState('');
   const [department, setDepartment] = useState('');
+  const [teacherCode, setTeacherCode] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const { registerStudent, registerTeacher, isAuthenticated, user } = useAuth();
@@ -62,9 +62,9 @@ const Register = () => {
     setIsLoading(true);
 
     if (role === 'student') {
-      await registerStudent(studentUsername, rollNumber, studentPassword, studentConfirmPassword, selectedClassId);
+      await registerStudent(studentUsername, studentPassword, studentConfirmPassword, selectedClassId);
     } else {
-      await registerTeacher(teacherUsername, teacherPassword, teacherConfirmPassword, department || undefined);
+      await registerTeacher(teacherUsername, teacherPassword, teacherConfirmPassword, department || undefined, teacherCode);
     }
 
     setIsLoading(false);
@@ -135,16 +135,10 @@ const Register = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="rollNumber">Roll Number</Label>
-                  <Input
-                    id="rollNumber"
-                    type="text"
-                    placeholder="Enter your roll number"
-                    value={rollNumber}
-                    onChange={(e) => setRollNumber(e.target.value)}
-                    required
-                    className="transition-base"
-                  />
+                  <Label>Roll Number</Label>
+                  <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground border border-input">
+                    Roll Number will be <strong>auto-assigned</strong> sequentially by the system.
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -247,6 +241,20 @@ const Register = () => {
                     onChange={(e) => setDepartment(e.target.value)}
                     className="transition-base"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="teacherCode">Teacher Access Code</Label>
+                  <Input
+                    id="teacherCode"
+                    type="password"
+                    placeholder="Enter faculty secret code"
+                    value={teacherCode}
+                    onChange={(e) => setTeacherCode(e.target.value)}
+                    required
+                    className="transition-base"
+                  />
+                  <p className="text-xs text-muted-foreground">Required for faculty registration.</p>
                 </div>
               </>
             )}

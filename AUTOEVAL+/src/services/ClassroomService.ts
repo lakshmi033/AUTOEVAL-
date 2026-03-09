@@ -80,7 +80,7 @@ export const ClassroomService = {
             return response.data.map((s: any) => ({
                 id: s.id,
                 name: s.full_name || s.email, // Fallback to email if name is missing
-                rollNumber: s.role_number || `S-${s.id}`, // Fallback ID-based roll number
+                rollNumber: s.roll_number || `${s.id}`, // Fallback ID-based roll number
                 evaluated: false,
                 email: s.email
             }));

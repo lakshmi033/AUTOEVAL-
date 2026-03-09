@@ -14,3 +14,9 @@ AUTOEVAL+/.vite/
 
 # OS
 .DS_Store
+
+# Temporary & Cache files
+*.log
+*.tmp
+*.cache
+.pytest_cache/

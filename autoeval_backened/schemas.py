@@ -88,4 +88,7 @@ class ClassroomRead(ClassroomBase):
 
 class StudentProfileRead(UserRead):
     """ Used when listing students in a class """
-    pass
+    roll_number: Optional[int] = None
+    evaluated: bool = False
+    marks: Optional[float] = None
+    grade: Optional[str] = None

@@ -71,6 +71,9 @@ class Enrollment(Base):
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     classroom_id = Column(Integer, ForeignKey("classrooms.id"), nullable=False, index=True)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # NEW: Class-specific Roll Number (1, 2, 3...)
+    roll_number = Column(Integer, nullable=True) # Nullable for migration, but logic will enforce it
 
     # Relationships
     student = relationship("User", back_populates="enrollments")

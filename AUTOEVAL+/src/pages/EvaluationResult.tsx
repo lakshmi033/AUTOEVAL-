@@ -84,20 +84,20 @@ const EvaluationResult = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="pt-24 pb-12 px-4">
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="mb-8 animate-fade-in">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => navigate(`/teacher/class/${classId}`)}
               className="mb-4"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Class {classId}
             </Button>
-            
+
             <div className="flex items-center gap-3">
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary-light">
                 <CheckCircle className="h-6 w-6 text-primary" />
@@ -126,7 +126,7 @@ const EvaluationResult = () => {
                   </p>
                   <p className="text-sm text-muted-foreground">Total Marks</p>
                 </div>
-                
+
                 <div>
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-light mb-3">
                     <Award className="h-8 w-8 text-primary" />
@@ -136,7 +136,7 @@ const EvaluationResult = () => {
                   </Badge>
                   <p className="text-sm text-muted-foreground mt-2">Grade</p>
                 </div>
-                
+
                 <div>
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-light mb-3">
                     <CheckCircle className="h-8 w-8 text-primary" />
@@ -202,7 +202,7 @@ const EvaluationResult = () => {
             </CardHeader>
             <CardContent>
               <div className="p-4 rounded-lg bg-muted/30 border">
-                <p className="text-foreground leading-relaxed">
+                <p className="text-foreground leading-relaxed whitespace-pre-wrap font-mono text-sm">
                   {evaluationData.feedback}
                 </p>
               </div>
@@ -211,7 +211,7 @@ const EvaluationResult = () => {
 
           {/* Action Buttons */}
           <div className="mt-8 flex justify-center gap-4 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-            <Button 
+            <Button
               variant="outline"
               onClick={() => navigate(`/teacher/class/${classId}`)}
             >

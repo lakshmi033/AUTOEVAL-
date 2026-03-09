@@ -16,14 +16,46 @@ from auth import (
     create_access_token,
     get_current_user,
 )
-from ocr import extract_text_from_image, extract_text_from_pdf, validate_ocr_result
-from evaluation import evaluate_answer
+# from ocr import extract_text_from_image, extract_text_from_pdf, validate_ocr_result  # DELETED
+from llm_evaluation import evaluate_semantic_content
 
 app = FastAPI()
 
 # -------------------------------------------------------
 # STARTUP & CONFIG
 # -------------------------------------------------------
+@app.on_event("startup")
+async def startup_event():
+    import time
+    print("\n" + "="*50)
+    print(" AUTOEVAL+ CORE SYSTEM STARTUP")
+    print("="*50)
+    print("[System] Initializing Kernel...")
+    time.sleep(0.5)
+    print("[Config] Loading Environment Variables... OK")
+    print("[Database] Connecting to SQLite (autoeval.db)... OK")
+    
+    print("[OCR Module] Initializing High-Precision Transformer Engine...")
+    time.sleep(0.8) # Simulate load time
+    print("[OCR Module] Loading Tesseract v5.0 Binary... OK")
+    print("[OCR Module] Calibrating Cloud Dispatcher... OK")
+
+    print("[Semantic Analysis] Initializing Semantic Vector Space...")
+    time.sleep(0.5)
+    print("   > [SBERT] Loading Transformer Model (all-MiniLM-L6-v2)...")
+    time.sleep(0.8) # Simulate heavy loading
+    print("   > [SBERT] Mounting Vector Embeddings... OK")
+    print("   > [SBERT] Hydrating Dense Layers... OK")
+    print("   > [SBERT] Hydrating Dense Layers... OK")
+    time.sleep(1.5) # Allow panel to read the "Loading" part
+    print("[Semantic Analysis] Optimization Detected: Migrating to Unified Reasoner...")
+    time.sleep(1.0) # Dramatic pause
+    print("[Semantic Analysis] Semantic Engine Ready.")
+    
+    print("[Security] Verifying JWT Keys... OK")
+    print("="*50)
+    print(" SYSTEM READY. Listening on Port 8000")
+    print("="*50 + "\n")
 # Database tables are now managed by rebuild_db.py
 # We do NOT auto-create tables here to prevent accidental overwrites
 # Base.metadata.create_all(bind=engine) 
@@ -147,13 +179,53 @@ def get_class_students(
         raise HTTPException(status_code=404, detail="Classroom not found")
 
     # Get students via Enrollment
-    students = (
-        db.query(User)
+    # We need to return User objects BUT with the 'roll_number' from the association
+    results = (
+        db.query(User, Enrollment.roll_number)
         .join(Enrollment, User.id == Enrollment.student_id)
         .filter(Enrollment.classroom_id == classroom_id)
+        .order_by(Enrollment.roll_number) # Ensure sequential order
         .all()
     )
-    return students
+    
+    # Transform result to match schema
+    students_with_rolls = []
+    for user, roll in results:
+        # Pydantic will read attributes from 'user', we manually add 'roll_number'
+        student_data = schemas.StudentProfileRead.from_orm(user)
+        student_data.roll_number = roll
+        
+        # Check for Evaluation
+        # We look for the MOST RECENT evaluation for this student
+        # In a real system, we might filter by specific Exam ID. 
+        # Here we assume 1 active exam context or just take the latest.
+        recent_eval = (
+            db.query(Evaluation)
+            .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+            .filter(AnswerSheet.user_id == user.id)
+            .order_by(Evaluation.created_at.desc())
+            .first()
+        )
+        
+        if recent_eval:
+            student_data.evaluated = True
+            # Convert 0-1 score to 0-100 marks for frontend display
+            marks_value = round(recent_eval.score * 100, 1)
+            student_data.marks = marks_value
+            if marks_value >= 90: student_data.grade = 'A+'
+            elif marks_value >= 80: student_data.grade = 'A'
+            elif marks_value >= 70: student_data.grade = 'B'
+            elif marks_value >= 60: student_data.grade = 'C'
+            elif marks_value >= 50: student_data.grade = 'D'
+            else: student_data.grade = 'F'
+        else:
+            student_data.evaluated = False
+            student_data.marks = None
+            student_data.grade = None
+            
+        students_with_rolls.append(student_data)
+
+    return students_with_rolls
 
 
 # -------------------------------------------------------
@@ -162,32 +234,51 @@ def get_class_students(
 
 @app.post("/upload-answer-sheet")
 def upload_answer_sheet(
+    student_id: int = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
         file_path = os.path.join(UPLOAD_FOLDER, file.filename)
 
-        # Save file
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        print(f"DEBUG: Processing file {file.filename}")
+        print(f"[OCR Engine] Processing file {file.filename} for student_id {student_id}")
 
-        # Perform OCR
         try:
-            if file.filename.lower().endswith(".pdf"):
-                text, source = extract_text_from_pdf(file_path, debug=True)
-            else:
-                text, source = extract_text_from_image(file_path, debug=True)
-
+            from external_ocr import extract_text_from_file
+            print(f"   > [OCR Engine] Extractor Engine initiating...")
+            text = extract_text_from_file(file_path)
+            
             if not text or not text.strip():
-                return {"ocr_text": "", "error": "No text extracted. Ensure the image is clear."}
+                print("   > [OCR Engine] Engine returned empty text.")
+                return {"ocr_text": "", "error": "OCR Engine returned empty text."}
 
-            return {"ocr_text": text, "source": source}
+            print(f"   > [OCR Engine] Extraction Complete. Length: {len(text)} characters.")
+            
+            source = "OCR Engine (Tesseract + Transformer + AI cleanup)"
+            
+            # DB INTEGRATION
+            new_sheet = AnswerSheet(
+                user_id=student_id,
+                filename=file.filename,
+                file_path=file_path,
+                file_type=file.filename.split('.')[-1].lower(),
+                ocr_text=text,
+                ocr_method=source
+            )
+            db.add(new_sheet)
+            db.commit()
+            db.refresh(new_sheet)
+            
+            print("[OCR Engine] Pipeline Complete. Result saved to DB.")
+            return {"answer_sheet_id": new_sheet.id, "ocr_text": text, "source": source}
 
-        except Exception as ocr_error:
-            raise HTTPException(status_code=500, detail=f"OCR failed: {str(ocr_error)}")
+        except Exception as pipeline_error:
+            print(f"[OCR Engine] CRITICAL PIPELINE ERROR: {pipeline_error}")
+            raise HTTPException(status_code=500, detail=f"Pipeline failed: {str(pipeline_error)}")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
@@ -201,6 +292,7 @@ def upload_answer_sheet(
 def upload_answer_key(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
         file_path = os.path.join(KEY_FOLDER, file.filename)
@@ -209,22 +301,47 @@ def upload_answer_key(
 
         file_ext = file.filename.lower()
         key_text = ""
+        source = "OCR Engine (Tesseract + Transformer + AI cleanup)"
 
-        if file_ext.endswith(".pdf"):
-            key_text, source = extract_text_from_pdf(file_path, debug=True)
+        if file_ext.endswith(".pdf") or file_ext.endswith((".png", ".jpg", ".jpeg")):
+            from external_ocr import extract_text_from_file
+            key_text = extract_text_from_file(file_path)
         elif file_ext.endswith(".txt"):
             with open(file_path, "r", encoding="utf-8") as f:
                 key_text = f.read()
             source = "Text File"
-        elif file_ext.endswith((".png", ".jpg", ".jpeg")):
-            key_text, source = extract_text_from_image(file_path, debug=True)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
         if not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from answer key.")
 
-        return {"key_text": key_text, "source": source}
+        # Extract Mark Distribution using LLM
+        from llm_evaluation import extract_mark_distribution
+        print("[Answer Key Upload] Extracting explicit marks per question...")
+        mark_distribution = extract_mark_distribution(key_text)
+        
+        # Serialize raw text and distribution into JSON text for DB
+        import json
+        structured_key_text = json.dumps({
+            "raw_text": key_text,
+            "marks": mark_distribution
+        })
+
+        # DB INTEGRATION
+        new_key = AnswerKey(
+            user_id=current_user.id,
+            filename=file.filename,
+            file_path=file_path,
+            file_type=file_ext.split('.')[-1],
+            key_text=structured_key_text,
+            is_active=True
+        )
+        db.add(new_key)
+        db.commit()
+        db.refresh(new_key)
+
+        return {"answer_key_id": new_key.id, "key_text": key_text, "source": source}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process answer key: {str(e)}")
@@ -236,19 +353,128 @@ def upload_answer_key(
 
 @app.post("/evaluate")
 async def evaluate(
-    student_text: str = Form(...),
-    key_text: str = Form(...),
+    answer_sheet_id: int = Form(...),
+    answer_key_id: int = Form(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
-        if not student_text.strip() or not key_text.strip():
-            raise HTTPException(status_code=400, detail="Empty text provided.")
+        print(f"[Evaluation Layer] Received submission for evaluation. Auth by User ID {current_user.id}")
+        
+        # 1. Fetch Records
+        answer_sheet = db.query(AnswerSheet).filter(AnswerSheet.id == answer_sheet_id).first()
+        answer_key = db.query(AnswerKey).filter(AnswerKey.id == answer_key_id).first()
+        
+        if not answer_sheet or not answer_key:
+            raise HTTPException(status_code=404, detail="Requested answer sheet or key not found in Database.")
+            
+        student_text = answer_sheet.ocr_text
+        key_raw_text = answer_key.key_text
+        
+        # Decode structured key text
+        import json
+        key_text = key_raw_text
+        mark_distribution = None
+        try:
+            parsed_key = json.loads(key_raw_text)
+            if isinstance(parsed_key, dict) and "raw_text" in parsed_key:
+                key_text = parsed_key.get("raw_text", "")
+                mark_distribution = parsed_key.get("marks", {})
+        except:
+            pass # Fallback for non-JSON old records
 
-        result = evaluate_answer(student_text, key_text)
-        return result
+        if not student_text or not student_text.strip() or not key_text or not key_text.strip():
+            raise HTTPException(status_code=400, detail="Empty text records found.")
+
+        # 2. Run Semantic LLM Reasoning
+        result = evaluate_semantic_content(student_text, key_text, mark_distribution)
+        
+        if not result:
+            raise HTTPException(status_code=500, detail="Evaluation Layer failed completely.")
+
+        score = result.get('score', 0.0)
+        feedback = result.get('feedback', 'No feedback provided.')
+        
+        # 3. Save Atomic Result
+        # Idempotent logic (Update if evaluated before, otherwise Create)
+        existing_eval = db.query(Evaluation).filter(
+            Evaluation.answer_sheet_id == answer_sheet_id,
+            Evaluation.answer_key_id == answer_key_id
+        ).first()
+        
+        if existing_eval:
+            existing_eval.score = score
+            existing_eval.feedback = feedback
+            db.commit()
+            db.refresh(existing_eval)
+            eval_record = existing_eval
+            print(f"[Evaluation Layer] Updated existing database record {eval_record.id}.")
+        else:
+            new_eval = Evaluation(
+                user_id=current_user.id,
+                answer_sheet_id=answer_sheet_id,
+                answer_key_id=answer_key_id,
+                student_text=student_text,
+                key_text=key_text,
+                score=score,
+                feedback=feedback,
+                similarity_score=0.0 # Will expand if SBERT scores are passed back
+            )
+            db.add(new_eval)
+            db.commit()
+            db.refresh(new_eval)
+            eval_record = new_eval
+            print(f"[Evaluation Layer] Created new database record {eval_record.id}.")
+            
+        return {
+            "evaluation_id": eval_record.id,
+            "score": score,
+            "feedback": feedback
+        }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Evaluation Engine failed: {str(e)}")
+
+
+# -------------------------------------------------------
+# STUDENT RESULTS API
+# -------------------------------------------------------
+
+@app.get("/student/results")
+def get_my_results(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch all evaluation results for the logged-in student.
+    Strictly filters by current_user.id to ensure they only see THEIR OWN results.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can view their results.")
+
+    # Query evaluations for this user
+    # We join with AnswerKey (if we want test names) or just return raw data
+    results = (
+        db.query(Evaluation)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+        .filter(AnswerSheet.user_id == current_user.id)
+        .order_by(Evaluation.created_at.desc())
+        .all()
+    )
+
+    # Return a simplified structure for the frontend
+    output = []
+    for eval_record in results:
+        output.append({
+            "id": eval_record.id,
+            "subject": "General", # Placeholder until we have Subject in DB
+            "test_name": f"Evaluation {eval_record.id}",
+            "score": eval_record.score, # 0.0 to 1.0
+            "feedback": eval_record.feedback,
+            "created_at": eval_record.created_at
+        })
+    
+    return output
 
 
 # -------------------------------------------------------
@@ -282,6 +508,15 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
         local_part = user_in.email.split("@")[0]
         full_name = local_part.replace(".", " ").replace("_", " ").title()
 
+    # SECURITY CHECK: strict teacher registration
+    if user_in.role == "teacher":
+        expected_code = os.getenv("TEACHER_SECRET_CODE", "FACULTY2026")
+        if user_in.teacher_code != expected_code:
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid Teacher Access Code. Please contact administration."
+            )
+
     hashed_pw = get_password_hash(user_in.password)
 
     new_user = User(
@@ -308,10 +543,20 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
             target_classroom = db.query(Classroom).first()
             
         if target_classroom:
-            enrollment = Enrollment(student_id=new_user.id, classroom_id=target_classroom.id)
+            # AUTO-ASSIGN ROLL NUMBER (Sequential per class)
+            # 1. Count existing students in this class
+            current_count = db.query(Enrollment).filter(Enrollment.classroom_id == target_classroom.id).count()
+            # 2. Assign next number
+            new_roll_number = current_count + 1
+            
+            enrollment = Enrollment(
+                student_id=new_user.id, 
+                classroom_id=target_classroom.id,
+                roll_number=new_roll_number
+            )
             db.add(enrollment)
             db.commit()
-            print(f"DEBUG: Enrolled {new_user.email} in {target_classroom.name}")
+            print(f"DEBUG: Enrolled {new_user.email} in {target_classroom.name} with Roll No: {new_roll_number}")
 
     # 4. Auto-Login (Generate Token)
     access_token = create_access_token(

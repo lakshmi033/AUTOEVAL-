@@ -18,7 +18,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loginStudent: (username: string, rollNumber: string, password: string) => Promise<boolean>;
   loginTeacher: (username: string, password: string) => Promise<boolean>;
-  registerStudent: (username: string, rollNumber: string, password: string, confirmPassword: string, classroomId?: string) => Promise<boolean>;
+  registerStudent: (username: string, password: string, confirmPassword: string, classroomId?: string) => Promise<boolean>;
   registerTeacher: (username: string, password: string, confirmPassword: string, department?: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
@@ -141,9 +141,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const registerStudent = async (
     username: string,
-    rollNumber: string,
     password: string,
-    confirmPassword: string
+    confirmPassword: string,
+    classroomId?: string
   ): Promise<boolean> => {
     if (password !== confirmPassword) {
       toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
@@ -151,15 +151,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      // Backend: { email, password, role, roll_number }
+      // Backend: { email, password, role, classroom_id }
+      // NOTE: backend AUTO-ASSIGNS roll_number, so we don't send it.
       await api.post('/register', {
         email: username,
         password: password,
         role: 'student',
-        roll_number: rollNumber
+        classroom_id: classroomId ? parseInt(classroomId) : undefined
       });
 
-      toast({ title: "Account Created!", description: "Please login now." });
+      toast({ title: "Account Created!", description: "Please login now. Roll No auto-assigned." });
       // Don't auto-login, let them login
       navigate('/student-login');
       return true;
@@ -178,7 +179,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     username: string,
     password: string,
     confirmPassword: string,
-    department?: string
+    department?: string,
+    teacherCode?: string
   ): Promise<boolean> => {
     if (password !== confirmPassword) {
       toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
@@ -190,7 +192,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: username,
         password: password,
         role: 'teacher',
-        department: department
+        department: department,
+        teacher_code: teacherCode
       });
 
       toast({ title: "Account Created!", description: "Please login now." });

@@ -27,6 +27,7 @@ const TeacherEvaluation = () => {
   const [answerKey, setAnswerKey] = useState<File | null>(null);
   const [answerKeyPreview, setAnswerKeyPreview] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState('');
+  const [answerSheetId, setAnswerSheetId] = useState<number | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleAnswerSheetUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,6 +70,7 @@ const TeacherEvaluation = () => {
     setAnswerSheet(null);
     setAnswerSheetPreview(null);
     setExtractedText('');
+    setAnswerSheetId(null);
   };
 
   const clearAnswerKey = () => {
@@ -90,6 +92,7 @@ const TeacherEvaluation = () => {
 
     try {
       const formData = new FormData();
+      formData.append('student_id', studentId || '');
       formData.append('file', answerSheet);
 
       // Use the shared api instance which handles base URL and auth tokens
@@ -111,8 +114,10 @@ const TeacherEvaluation = () => {
           variant: "destructive",
         });
         setExtractedText(""); // Clear extracted text if there's an error
+        setAnswerSheetId(null);
       } else {
         setExtractedText(data.ocr_text);
+        setAnswerSheetId(data.answer_sheet_id);
         if (data.source) {
           toast({
             title: "OCR Successful",
@@ -131,29 +136,21 @@ const TeacherEvaluation = () => {
       console.error("OCR Error:", error);
       toast({
         title: "OCR Error",
-        description: error.response?.data?.message || "Failed to process answer sheet. Please try again.",
+        description: error.response?.data?.detail || "Failed to process answer sheet. Please try again.",
         variant: "destructive",
       });
       setExtractedText("");
+      setAnswerSheetId(null);
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleEvaluate = async () => {
-    if (!answerSheet || !answerKey) {
+    if (!answerSheetId || !answerKey) {
       toast({
         title: "Missing Information",
-        description: "Please upload both answer sheet and answer key.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!extractedText) {
-      toast({
-        title: "Process OCR First",
-        description: "Please process the answer sheet with OCR before evaluation.",
+        description: "Please process the answer sheet first and upload an answer key.",
         variant: "destructive",
       });
       return;
@@ -161,30 +158,78 @@ const TeacherEvaluation = () => {
 
     setIsProcessing(true);
 
-    // Simulate evaluation processing
-    setTimeout(() => {
-      setIsProcessing(false);
+    try {
+      // 1. Upload Answer Key to DB
+      const keyFormData = new FormData();
+      keyFormData.append('file', answerKey);
 
-      // Navigate to result page with evaluation data
+      const keyResponse = await api.post('/upload-answer-key', keyFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const answerKeyId = keyResponse.data.answer_key_id;
+
+      if (!answerKeyId) {
+        toast({ title: "Answer Key Error", description: "Failed to upload answer key.", variant: "destructive" });
+        setIsProcessing(false);
+        return;
+      }
+
+      // 2. Call Backend Evaluation
+      const evalFormData = new FormData();
+      evalFormData.append('answer_sheet_id', answerSheetId.toString());
+      evalFormData.append('answer_key_id', answerKeyId.toString());
+
+      const response = await api.post('/evaluate', evalFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      const result = response.data;
+
+      // 3. Map Result to Frontend Structure
+      // Note: Backend gives a holistic score [0-1]. We map this to a single "Comprehensive" question.
+      const maxMarks = 100;
+      const obtainedMarks = Math.round(result.score * maxMarks);
+      let grade = 'F';
+      if (result.score >= 0.9) grade = 'A+';
+      else if (result.score >= 0.8) grade = 'A';
+      else if (result.score >= 0.7) grade = 'B';
+      else if (result.score >= 0.6) grade = 'C';
+      else if (result.score >= 0.5) grade = 'D';
+
+      const evaluationData = {
+        questions: [
+          {
+            number: 1,
+            answer: extractedText.substring(0, 200) + (extractedText.length > 200 ? "..." : ""),
+            marks: obtainedMarks,
+            maxMarks: maxMarks
+          }
+        ],
+        totalMarks: obtainedMarks,
+        maxTotalMarks: maxMarks,
+        grade: grade,
+        feedback: result.feedback + (result.method ? ` (Method: ${result.method})` : "")
+      };
+
+      // 4. Navigate to Result
       navigate(`/teacher/class/${classId}/result/${studentId}`, {
         state: {
           student,
-          evaluationData: {
-            questions: [
-              { number: 1, answer: "The mitochondria is the powerhouse of the cell. It produces ATP through cellular respiration.", marks: 8, maxMarks: 10 },
-              { number: 2, answer: "Photosynthesis is the process by which plants convert light energy into chemical energy.", marks: 10, maxMarks: 10 },
-              { number: 3, answer: "DNA stands for Deoxyribonucleic acid and contains genetic instructions.", marks: 9, maxMarks: 10 },
-              { number: 4, answer: "The water cycle involves evaporation, condensation, and precipitation.", marks: 7, maxMarks: 10 },
-              { number: 5, answer: "Newton's first law states that an object at rest stays at rest unless acted upon by an external force.", marks: 10, maxMarks: 10 },
-            ],
-            totalMarks: 44,
-            maxTotalMarks: 50,
-            grade: 'A',
-            feedback: 'Excellent understanding of the concepts. Minor improvements needed in Q1 and Q4. Keep up the good work!'
-          }
+          evaluationData
         }
       });
-    }, 2000);
+
+    } catch (error: any) {
+      console.error("Evaluation Error:", error);
+      toast({
+        title: "Evaluation Failed",
+        description: error.response?.data?.detail || "Could not complete evaluation.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -369,7 +414,7 @@ const TeacherEvaluation = () => {
             <Button
               size="lg"
               onClick={handleEvaluate}
-              disabled={isProcessing || !extractedText || !answerKey}
+              disabled={isProcessing || !answerSheetId || !answerKey}
               className="px-12"
             >
               {isProcessing ? 'Evaluating...' : 'Evaluate Answers'}
