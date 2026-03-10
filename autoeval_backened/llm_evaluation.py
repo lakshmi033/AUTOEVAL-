@@ -146,42 +146,46 @@ def evaluate_semantic_content(student_text: str, key_text: str, mark_distributio
         **PROVIDED MARK DISTRIBUTION:**
         {mark_distribution_str}
         
-        ### ADVANCED HYBRID GRADING SYSTEM:
-        Execute the following steps for EACH question:
+        ### GRADING INSTRUCTIONS:
+        For EACH question, do the following steps. DO NOT perform any arithmetic yourself.
         
-        **STEP 1: CONCEPT-BASED WEIGHTING & EXTRACTION**
-        - Dynamically extract the core concepts/keywords from the Answer Key for this specific question.
-        - Do NOT hardcode concepts; derive them entirely from the text.
-        - The question's Maximum Marks (from Provided Mark Distribution) are evenly or proportionally divided across these extracted concepts to determine the `concept_weight`.
+        **STEP 1: LIST KEY CONCEPTS**
+        - From the Answer Key for this specific question, list ONLY the major distinct scorable concepts.
+        - Use roughly 1 concept per mark available (so a 3-mark question gets ~3-4 concepts, a 7-mark question gets ~7-9 concepts MAXIMUM).
+        - Store these as: `key_concepts` — a list of short concept labels.
         
-        **STEP 2: SEMANTIC COVERAGE & REASONING (The 60/30/10 Formula)**
-        For this question, determine three sub-scores (each from 0.0 to 1.0):
-        - `semantic_similarity` (0.0-1.0): How closely aligned the student's semantic meaning is to the answer key. Use the GLOBAL SBERT score as an anchor, but adjust it per question.
-        - `concept_coverage` (0.0-1.0): The ratio of key concepts successfully identified and explained by the student.
-        - `reasoning_quality` (0.0-1.0): The depth, clarity, and logical flow of the student's answer.
-        - **Calculate RAW RATIO:** `raw_ratio = (0.6 * semantic_similarity) + (0.3 * concept_coverage) + (0.1 * reasoning_quality)`
+        **STEP 2: MATCH CONCEPTS**
+        - Check which of these key_concepts are clearly and substantively present in the student's answer.
+        - Set `matched_count` = number of matched concepts (integer).
+        - Do NOT give credit for bare keyword mentions. The student must demonstrate understanding.
         
-        **STEP 3: WRONG INFORMATION PENALTY**
-        - If the student answer contains factual contradictions against the answer key (e.g., writing "PM is directly elected" instead of "appointed"), apply a penalty.
-        - Penalty Rule: Subtract 50% of that specific wrong concept's weight from the question's total score.
-        - Adjust the `raw_ratio` downward based on this penalty to produce the `final_ratio` (0.0 to 1.0). Never go below 0.0.
+        **STEP 3: SHORT ANSWER DETECTION**
+        - For questions worth 5 or more marks: if the student's text is very short (fewer than 3 sentences or lacks depth), set `short_answer_cap` to true.
         
-        **STEP 4: SCORE DISTRIBUTION RULES**
-        Ensure the `final_ratio` accurately reflects academic realism and is not artificially compressed:
-        - Excellent: 0.85 - 1.00
-        - Good: 0.70 - 0.84
-        - Partial: 0.40 - 0.69
-        - Poor: 0.20 - 0.39
-        - Incorrect: < 0.20
+        **STEP 4: FACTUAL PENALTIES**
+        - If the student stated something directly contradicting the answer key, set `penalty` to a non-zero float (e.g., 0.5). Otherwise 0.0.
         
-        **STEP 5: FINAL QUESTION MARKS CALCULATION & ROUNDING**
-        - Multiply the `final_ratio` by the Maximum Marks for this question to get the `obtained_marks`.
-        - Round the `obtained_marks` to EXACTLY 1 decimal place (e.g., 2.333 -> 2.3, 4.666 -> 4.7).
+        **STEP 5: REASONING NOTE**
+        - Write one sentence explaining your decision in `reasoning`.
         
-        ### OUTPUT FORMAT (JSON ONLY):
+        ### OUTPUT FORMAT (JSON ONLY, all questions must appear):
         {{
-            "question_scores": {{"1": 2.0, "2": 2.3, "6": 4.7}},  # Dictionary of obtained_marks (rounded to 1 decimal) mapping string Question Number to float.
-            "feedback": "Global SBERT Score: {sbert_score:.2f}\\n\\nQ1:\\n- Concepts Extracted: [A, B, C]\\n- Penalties: None (or describe contradiction, do NOT duplicate this line)\\n- Marks: X/Y (where X is 1-decimal obtained mark, Y is exactly from Provided Mark Distribution)\\n- Reasoning: ...\\n..."
+            "question_evaluations": {{
+                "1": {{
+                    "key_concepts": ["Concept A", "Concept B", "Concept C"],
+                    "matched_count": 2,
+                    "short_answer_cap": false,
+                    "penalty": 0.0,
+                    "reasoning": "Student covered A and B but missed C."
+                }},
+                "6": {{
+                    "key_concepts": ["Concept A", "Concept B", "Concept C", "Concept D", "Concept E", "Concept F", "Concept G"],
+                    "matched_count": 2,
+                    "short_answer_cap": true,
+                    "penalty": 0.5,
+                    "reasoning": "Short answer, only touched A and B."
+                }}
+            }}
         }}
         """
 
@@ -206,24 +210,82 @@ def evaluate_semantic_content(student_text: str, key_text: str, mark_distributio
                 text_response = completion.choices[0].message.content.strip()
                 result = json.loads(text_response)
                 
-                # Perform mathematically exact aggregate calculation in Python 
-                if 'question_scores' in result and mark_distribution:
+                # -------------------------------------------------------
+                # PYTHON MATH ENGINE — All arithmetic done here, not in LLM
+                # -------------------------------------------------------
+                if 'question_evaluations' in result and mark_distribution:
                     total_obtained = 0.0
-                    for q_num, ob_marks in result['question_scores'].items():
+                    question_scores = {}
+                    feedback_lines = [f"Global SBERT Score: {sbert_score:.2f}\n"]
+                    
+                    for q_num, data in result['question_evaluations'].items():
                         try:
-                            total_obtained += float(ob_marks)
-                        except:
+                            # 1. Fetch max marks
+                            max_marks = float(mark_distribution.get(str(q_num), 3.0))
+                            
+                            # 2. Derive total_concepts from the actual listed array — never trust an LLM-given integer
+                            key_concepts = data.get('key_concepts', [])
+                            total = float(len(key_concepts)) if key_concepts else float(data.get('total_concepts', 1))
+                            if total <= 0: total = 1.0
+                            matched = float(data.get('matched_count', data.get('matched_concepts', 0)))
+                            matched = min(matched, total)  # Cannot match more than total
+                            
+                            # 3. Pure coverage ratio formula
+                            coverage_ratio = matched / total
+                            base_marks = coverage_ratio * max_marks
+                            
+                            # 4. Short-answer hard cap for high-value questions
+                            short_cap = data.get('short_answer_cap', data.get('short_answer_cap_triggered', False))
+                            cap_applied = False
+                            if short_cap and max_marks >= 5.0 and base_marks > (max_marks * 0.43):
+                                base_marks = round(max_marks * 0.43, 1)  # Cap at ~3/7 = 43%
+                                cap_applied = True
+                            
+                            # 5. Apply factual penalty
+                            penalty = float(data.get('penalty', data.get('factual_penalty_deduction', 0.0)))
+                            final_q_mark = max(0.0, base_marks - penalty)
+                            final_q_mark = round(final_q_mark, 1)
+                            
+                            question_scores[q_num] = final_q_mark
+                            total_obtained += final_q_mark
+                            
+                            # 6. Build feedback line — Python injects the actual marks
+                            concepts_str = ", ".join(key_concepts) if key_concepts else "(not listed)"
+                            penalty_str = f"-{penalty} Marks" if penalty > 0 else "None"
+                            cap_str = " [Short-Answer Cap Applied]" if cap_applied else ""
+                            reasoning = data.get('reasoning', '')
+                            feedback_lines.append(
+                                f"Q{q_num}:\n"
+                                f"- Concepts: [{concepts_str}]\n"
+                                f"- Coverage: {int(matched)}/{int(total)} concepts matched\n"
+                                f"- Marks: {final_q_mark}/{max_marks}{cap_str}\n"
+                                f"- Penalty: {penalty_str}\n"
+                                f"- Reasoning: {reasoning}\n"
+                            )
+                            
+                            print(f"[Math Engine] Q{q_num}: {matched}/{total} concepts | {final_q_mark}/{max_marks} marks")
+                            
+                        except Exception as calc_err:
+                            print(f"[Math Engine] Error calculating Q{q_num}: {calc_err}")
                             pass
                     
-                    total_max = sum(mark_distribution.values())
+                    # Store results
+                    result['question_scores'] = question_scores
+                    result['feedback'] = "\n".join(feedback_lines)
                     
+                    total_max = sum(mark_distribution.values())
                     if total_max > 0:
                         calculated_score = total_obtained / total_max
                         result['score'] = max(0.0, min(1.0, float(calculated_score)))
+                        print(f"[Math Engine] FINAL: {total_obtained:.1f}/{total_max:.0f} = {calculated_score*100:.1f}%")
                     else:
                         result['score'] = 0.0
                         
-                # Fallback if the LLM hallucinated the old format
+                # Fallback for old format
+                elif 'question_scores' in result and mark_distribution:
+                    total_obtained = sum([float(v) for v in result['question_scores'].values() if str(v).replace('.','').isdigit()])
+                    total_max = sum(mark_distribution.values())
+                    result['score'] = max(0.0, min(1.0, float(total_obtained / total_max) if total_max > 0 else 0.0))
                 elif 'score' in result:
                     result['score'] = max(0.0, min(1.0, float(result['score'])))
                 
