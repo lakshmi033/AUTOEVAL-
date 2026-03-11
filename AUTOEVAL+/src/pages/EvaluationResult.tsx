@@ -17,6 +17,7 @@ interface EvaluationData {
   questions: QuestionResult[];
   totalMarks: number;
   maxTotalMarks: number;
+  percentage: number;
   grade: string;
   feedback: string;
 }
@@ -113,16 +114,16 @@ const EvaluationResult = () => {
             </div>
           </div>
 
-          {/* Summary Card */}
+          {/* Summary Card — shows X / 50 */}
           <Card className="shadow-soft mb-8 animate-fade-in-up">
             <CardContent className="pt-6">
-              <div className="grid md:grid-cols-3 gap-6 text-center">
+              <div className="grid md:grid-cols-2 gap-6 text-center">
                 <div>
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-light mb-3">
                     <FileText className="h-8 w-8 text-primary" />
                   </div>
                   <p className="text-3xl font-bold">
-                    {evaluationData.totalMarks}/{evaluationData.maxTotalMarks}
+                    {evaluationData.totalMarks} / {evaluationData.maxTotalMarks}
                   </p>
                   <p className="text-sm text-muted-foreground">Total Marks</p>
                 </div>
@@ -135,16 +136,6 @@ const EvaluationResult = () => {
                     {evaluationData.grade}
                   </Badge>
                   <p className="text-sm text-muted-foreground mt-2">Grade</p>
-                </div>
-
-                <div>
-                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-light mb-3">
-                    <CheckCircle className="h-8 w-8 text-primary" />
-                  </div>
-                  <p className="text-3xl font-bold">
-                    {Math.round((evaluationData.totalMarks / evaluationData.maxTotalMarks) * 100)}%
-                  </p>
-                  <p className="text-sm text-muted-foreground">Percentage</p>
                 </div>
               </div>
             </CardContent>
@@ -205,6 +196,21 @@ const EvaluationResult = () => {
                 <p className="text-foreground leading-relaxed whitespace-pre-wrap font-mono text-sm">
                   {evaluationData.feedback}
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Percentage Summary — shown AFTER feedback as per panel request */}
+          <Card className="shadow-soft mt-8 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-light mb-3">
+                  <CheckCircle className="h-8 w-8 text-primary" />
+                </div>
+                <p className="text-4xl font-bold mb-1">
+                  {evaluationData.percentage ?? Math.round((evaluationData.totalMarks / evaluationData.maxTotalMarks) * 100)} / 100
+                </p>
+                <p className="text-muted-foreground text-sm">Final Percentage Score</p>
               </div>
             </CardContent>
           </Card>

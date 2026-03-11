@@ -186,30 +186,46 @@ const TeacherEvaluation = () => {
 
       const result = response.data;
 
-      // 3. Map Result to Frontend Structure
-      // Note: Backend gives a holistic score [0-1]. We map this to a single "Comprehensive" question.
-      const maxMarks = 100;
-      const obtainedMarks = Math.round(result.score * maxMarks);
+      // 3. Build evaluationData using actual marks from API (e.g., 18.5/50 not 100)
+      const rawMaxMarks   = result.max_marks   ?? 50;
+      const rawTotalMarks = result.total_marks  ?? Math.round(result.score * rawMaxMarks);
+      const percentage    = result.percentage   ?? Math.round(result.score * 100);
+
+      const questions = [];
+      if (result.question_details && Object.keys(result.question_details).length > 0) {
+        Object.entries(result.question_details)
+          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+          .forEach(([qNum, details]: [string, any]) => {
+            questions.push({
+              number: parseInt(qNum),
+              answer: `Question ${qNum} Response (See feedback for details)`,
+              marks: details.marks,
+              maxMarks: details.max_marks
+            });
+          });
+      } else {
+        questions.push({
+          number: 1,
+          answer: extractedText.substring(0, 200) + (extractedText.length > 200 ? "..." : ""),
+          marks: rawTotalMarks,
+          maxMarks: rawMaxMarks
+        });
+      }
+
       let grade = 'F';
       if (result.score >= 0.9) grade = 'A+';
       else if (result.score >= 0.8) grade = 'A';
       else if (result.score >= 0.7) grade = 'B';
-      else if (result.score >= 0.6) grade = 'C';
-      else if (result.score >= 0.5) grade = 'D';
+      else if (result.score >= 0.5) grade = 'C';
+      else if (result.score >= 0.4) grade = 'D';
 
       const evaluationData = {
-        questions: [
-          {
-            number: 1,
-            answer: extractedText.substring(0, 200) + (extractedText.length > 200 ? "..." : ""),
-            marks: obtainedMarks,
-            maxMarks: maxMarks
-          }
-        ],
-        totalMarks: obtainedMarks,
-        maxTotalMarks: maxMarks,
+        questions,
+        totalMarks: rawTotalMarks,
+        maxTotalMarks: rawMaxMarks,
+        percentage: percentage,
         grade: grade,
-        feedback: result.feedback + (result.method ? ` (Method: ${result.method})` : "")
+        feedback: result.feedback ?? ''
       };
 
       // 4. Navigate to Result

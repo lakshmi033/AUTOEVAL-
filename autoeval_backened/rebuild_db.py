@@ -31,9 +31,9 @@ def init_db():
         db.commit()
         db.refresh(teacher)
 
-        # 3. Create 3 Classes (Generic Names)
+        # 3. Create 3 Classes
         print("Creating Classrooms...")
-        class_names = ["Classroom A", "Classroom B", "Classroom C"]
+        class_names = ["Class A", "Class B", "Class C"]
         classrooms = []
         for name in class_names:
             c = Classroom(name=name, teacher_id=teacher.id)
@@ -43,8 +43,8 @@ def init_db():
         for c in classrooms:
             db.refresh(c)
 
-        # 4. Create 90 Students (Realistic Names)
-        print("Creating 90 Students (Realistic Names)...")
+        # 4. Create 90 Students
+        print("Creating 90 Students...")
         student_pass = get_password_hash("student123")
         
         student_names = [
@@ -65,21 +65,24 @@ def init_db():
             "Larry Ramirez", "Samantha James", "Justin Watson", "Katherine Brooks", "Scott Kelly", 
             "Christine Sanders", "Frank Price", "Debra Bennett", "Brandon Wood", "Rachel Barnes",
             "Raymond Ross", "Carolyn Henderson", "Gregory Coleman", "Janet Jenkins", "Benjamin Perry", 
-            "Maria Powell", "Samuel Long", "Heather Patterson", "Patrick Hughes", "Diane Flores"
+            "Maria Powell", "Samuel Long", "Heather Patterson", "Patrick Hughes", "Diane Flores",
+            "Olivia Moore", "Liam Taylor", "Emma Anderson", "Noah Thomas", "Ava Jackson",
+            "Lucas White", "Sophia Harris", "Mason Martin", "Mia Thompson", "Ethan Clark"
         ]
+        
+        # Trim or ensure at least 90
+        student_names = student_names[:90]
         
         student_idx = 0
         
         for c in classrooms:
             print(f"  -> Filling {c.name}")
-            for _ in range(30):
+            for roll in range(1, 31):
                 if student_idx >= len(student_names):
                     break
                     
                 full_name = student_names[student_idx]
                 
-                # Generate realistic email: firstname.lastname@school.com
-                # Handle spaces and cases
                 name_parts = full_name.lower().split()
                 if len(name_parts) >= 2:
                     email_prefix = f"{name_parts[0]}.{name_parts[-1]}"
@@ -91,20 +94,24 @@ def init_db():
                 # Check duplication
                 existing = db.query(User).filter(User.email == email).first()
                 if existing:
-                    # Fallback for duplicates (though list should be unique)
                     email = f"{email_prefix}{student_idx}@school.com"
                 
                 student = User(
                     email=email,
                     hashed_password=student_pass,
                     full_name=full_name,
-                    role="student"
+                    role="student",
+                    is_evaluated=False
                 )
                 db.add(student)
-                db.flush() # get id
+                db.flush() 
 
-                # Enroll
-                enroll = Enrollment(student_id=student.id, classroom_id=c.id)
+                # Enroll with Roll Number
+                enroll = Enrollment(
+                    student_id=student.id, 
+                    classroom_id=c.id,
+                    roll_number=roll
+                )
                 db.add(enroll)
                 
                 student_idx += 1
@@ -113,9 +120,9 @@ def init_db():
         print("\n" + "="*50)
         print("DATABASE REBUILD COMPLETE")
         print(f"Teacher: teacher@school.com / teacher123")
-        print(f"Students Format: firstname.lastname@school.com / student123")
-        print(f"Example Student: {student_names[0].replace(' ', '.').lower()}@school.com")
-        print("Total Students: 90")
+        print(f"Students: 30 per class (Class A, B, C)")
+        print(f"Roll Numbers: 1-30 sequentially")
+        print(f"Total Students: {student_idx}")
         print("===========================")
 
     except Exception as e:

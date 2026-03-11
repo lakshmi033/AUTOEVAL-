@@ -195,29 +195,35 @@ def get_class_students(
         student_data = schemas.StudentProfileRead.from_orm(user)
         student_data.roll_number = roll
         
-        # Check for Evaluation
-        # We look for the MOST RECENT evaluation for this student
-        # In a real system, we might filter by specific Exam ID. 
-        # Here we assume 1 active exam context or just take the latest.
-        recent_eval = (
-            db.query(Evaluation)
-            .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
-            .filter(AnswerSheet.user_id == user.id)
-            .order_by(Evaluation.created_at.desc())
-            .first()
-        )
-        
-        if recent_eval:
+        # Check for Persistent Evaluation Status
+        if user.is_evaluated:
             student_data.evaluated = True
-            # Convert 0-1 score to 0-100 marks for frontend display
-            marks_value = round(recent_eval.score * 100, 1)
-            student_data.marks = marks_value
-            if marks_value >= 90: student_data.grade = 'A+'
-            elif marks_value >= 80: student_data.grade = 'A'
-            elif marks_value >= 70: student_data.grade = 'B'
-            elif marks_value >= 60: student_data.grade = 'C'
-            elif marks_value >= 50: student_data.grade = 'D'
-            else: student_data.grade = 'F'
+            
+            # Fetch latest marks for display
+            recent_eval = (
+                db.query(Evaluation)
+                .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+                .filter(AnswerSheet.user_id == user.id)
+                .order_by(Evaluation.created_at.desc())
+                .first()
+            )
+            
+            if recent_eval:
+                percentage = recent_eval.score * 100
+                # Assign grade based on percentage (standard 100-point scale logic)
+                if percentage >= 90: student_data.grade = 'A+'
+                elif percentage >= 80: student_data.grade = 'A'
+                elif percentage >= 70: student_data.grade = 'B'
+                elif percentage >= 50: student_data.grade = 'C'
+                elif percentage >= 40: student_data.grade = 'D'
+                else: student_data.grade = 'F'
+                
+                # Display marks out of 50 (as requested)
+                student_data.marks = round(recent_eval.score * 50, 1)
+            else:
+                # Handle edge case where is_evaluated is True but no Evaluation record exists
+                student_data.marks = None
+                student_data.grade = None
         else:
             student_data.evaluated = False
             student_data.marks = None
@@ -316,16 +322,20 @@ def upload_answer_key(
         if not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from answer key.")
 
-        # Extract Mark Distribution using LLM
-        from llm_evaluation import extract_mark_distribution
+        # Extract Mark Distribution and Concepts using LLM
+        from llm_evaluation import extract_mark_distribution, extract_key_concepts_once
         print("[Answer Key Upload] Extracting explicit marks per question...")
         mark_distribution = extract_mark_distribution(key_text)
         
-        # Serialize raw text and distribution into JSON text for DB
+        print("[Answer Key Upload] Locking scorable concepts for determinism...")
+        key_concepts = extract_key_concepts_once(key_text, mark_distribution)
+        
+        # Serialize raw text, distribution, and concepts into JSON text for DB
         import json
         structured_key_text = json.dumps({
             "raw_text": key_text,
-            "marks": mark_distribution
+            "marks": mark_distribution,
+            "concepts": key_concepts
         })
 
         # DB INTEGRATION
@@ -375,19 +385,44 @@ async def evaluate(
         import json
         key_text = key_raw_text
         mark_distribution = None
+        pre_extracted_concepts = None
+        
         try:
             parsed_key = json.loads(key_raw_text)
             if isinstance(parsed_key, dict) and "raw_text" in parsed_key:
                 key_text = parsed_key.get("raw_text", "")
                 mark_distribution = parsed_key.get("marks", {})
+                pre_extracted_concepts = parsed_key.get("concepts", {})
         except:
             pass # Fallback for non-JSON old records
+
+        # AUTO-RECOVERY: If marks/concepts are missing (e.g. from a failed previous extraction)
+        if not mark_distribution or not pre_extracted_concepts:
+            from llm_evaluation import extract_mark_distribution, extract_key_concepts_once
+            print("[Evaluation Layer] DETECTED MISSING METADATA. Recovering on-the-fly...")
+            if not mark_distribution:
+                mark_distribution = extract_mark_distribution(key_text)
+            if not pre_extracted_concepts:
+                pre_extracted_concepts = extract_key_concepts_once(key_text, mark_distribution)
+            
+            # Update DB record for future calls to be faster
+            try:
+                answer_key.key_text = json.dumps({
+                    "raw_text": key_text,
+                    "marks": mark_distribution,
+                    "concepts": pre_extracted_concepts
+                })
+                db.add(answer_key)
+                db.commit()
+                print("[Evaluation Layer] Successfully updated Answer Key record with recovered metadata.")
+            except:
+                pass
 
         if not student_text or not student_text.strip() or not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="Empty text records found.")
 
         # 2. Run Semantic LLM Reasoning
-        result = evaluate_semantic_content(student_text, key_text, mark_distribution)
+        result = evaluate_semantic_content(student_text, key_text, mark_distribution, pre_extracted_concepts)
         
         if not result:
             raise HTTPException(status_code=500, detail="Evaluation Layer failed completely.")
@@ -426,9 +461,24 @@ async def evaluate(
             eval_record = new_eval
             print(f"[Evaluation Layer] Created new database record {eval_record.id}.")
             
+        # 4. Update Student Status (Persistent & Robust)
+        student = db.query(User).filter(User.id == answer_sheet.user_id).first()
+        if student:
+            print(f"[STATUS UPDATE] Initial state for Student ID {student.id}: is_evaluated={student.is_evaluated}")
+            student.is_evaluated = True
+            db.add(student)
+            db.flush()
+            db.commit()
+            db.refresh(student)
+            print(f"[STATUS UPDATE] Student ID {student.id} set to is_evaluated=True and committed.")
+
         return {
             "evaluation_id": eval_record.id,
-            "score": score,
+            "score": score,                          # 0.0 – 1.0 decimal (stored in DB)
+            "total_marks": round(score * (sum(mark_distribution.values()) if mark_distribution else 50), 1),
+            "max_marks": sum(mark_distribution.values()) if mark_distribution else 50,
+            "percentage": round(score * 100, 1),
+            "question_details": result.get('question_details', {}),
             "feedback": feedback
         }
 

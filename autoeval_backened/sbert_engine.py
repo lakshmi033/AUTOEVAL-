@@ -4,10 +4,14 @@ warnings.filterwarnings("ignore")
 
 try:
     from sentence_transformers import SentenceTransformer, util
-    _SBERT_MODEL = None
+    SBERT_AVAILABLE = True
 except ImportError:
     print("WARNING: sentence-transformers not installed. SBERT Layer will be disabled.")
-    _SBERT_MODEL = None
+    SentenceTransformer = None
+    util = None
+    SBERT_AVAILABLE = False
+
+_SBERT_MODEL = None
 
 def load_sbert_model():
     """
@@ -34,15 +38,19 @@ def calculate_similarity_score(student_text: str, key_text: str) -> float:
         return 0.0
 
     try:
+        # Standardize inputs for maximum stability
+        s_text = student_text.strip().lower()
+        k_text = key_text.strip().lower()
+
         # Compute embeddings
-        embeddings1 = model.encode(student_text, convert_to_tensor=True)
-        embeddings2 = model.encode(key_text, convert_to_tensor=True)
+        embeddings1 = model.encode(s_text, convert_to_tensor=True)
+        embeddings2 = model.encode(k_text, convert_to_tensor=True)
 
         # Compute cosine similarity
         cosine_scores = util.cos_sim(embeddings1, embeddings2)
         score = float(cosine_scores[0][0])
         
-        # Normalize to 0-1 just in case
+        # Normalize to 0-1
         return max(0.0, min(1.0, score))
     except Exception as e:
         print(f"WARNING: SBERT Calculation failed: {e}")

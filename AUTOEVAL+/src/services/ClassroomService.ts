@@ -79,9 +79,11 @@ export const ClassroomService = {
             // Map backend response (StudentProfileRead) to frontend Student interface
             return response.data.map((s: any) => ({
                 id: s.id,
-                name: s.full_name || s.email, // Fallback to email if name is missing
-                rollNumber: s.roll_number || `${s.id}`, // Fallback ID-based roll number
-                evaluated: false,
+                name: s.full_name || s.email,
+                rollNumber: s.roll_number || `${s.id}`,
+                evaluated: s.evaluated || false,
+                marks: s.marks,
+                grade: s.grade,
                 email: s.email
             }));
         } catch (error) {
@@ -106,7 +108,9 @@ export const ClassroomService = {
                 id: s.id,
                 name: s.full_name,
                 rollNumber: s.roll_number,
-                evaluated: false,
+                evaluated: s.evaluated || false,
+                marks: s.marks,
+                grade: s.grade,
                 email: s.email
             };
         } catch (error) {
