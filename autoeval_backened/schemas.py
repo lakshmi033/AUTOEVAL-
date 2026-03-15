@@ -92,3 +92,4 @@ class StudentProfileRead(UserRead):
     evaluated: bool = False
     marks: Optional[float] = None
     grade: Optional[str] = None
+    pass_status: Optional[str] = None

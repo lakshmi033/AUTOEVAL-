@@ -8,10 +8,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, UserPlus, Users, CheckCircle, Clock, GraduationCap } from 'lucide-react';
+import { ArrowLeft, UserPlus, Users, CheckCircle, Clock, GraduationCap, Eye, FileText, BarChart3 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-
-
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const ClassDetail = () => {
   const { classId } = useParams();
@@ -23,6 +28,11 @@ const ClassDetail = () => {
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentRoll, setNewStudentRoll] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // View Result State
+  const [selectedEval, setSelectedEval] = useState<any>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isLoadingEval, setIsLoadingEval] = useState(false);
 
   // Fetch students on mount
   useEffect(() => {
@@ -86,6 +96,24 @@ const ClassDetail = () => {
     });
   };
 
+  const handleViewResult = async (student: Student) => {
+    setIsLoadingEval(true);
+    setIsViewModalOpen(true);
+    try {
+      const evaluation = await ClassroomService.getLatestEvaluation(student.id);
+      setSelectedEval({ ...evaluation, studentName: student.name });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load evaluation details.",
+        variant: "destructive"
+      });
+      setIsViewModalOpen(false);
+    } finally {
+      setIsLoadingEval(false);
+    }
+  };
+
   const pendingStudents = students.filter(s => !s.evaluated);
   const evaluatedStudents = students.filter(s => s.evaluated);
 
@@ -109,7 +137,7 @@ const ClassDetail = () => {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       <Navbar />
 
       <main className="pt-24 pb-12 px-4">
@@ -137,12 +165,12 @@ const ClassDetail = () => {
             </div>
             
             <div className="flex items-center gap-2">
-               <Badge variant="outline" className="px-3 py-1">
-                 <CheckCircle className="h-3 w-3 mr-2 text-green-500" />
+               <Badge variant="outline" className="px-3 py-1 bg-green-500/5 text-green-600 border-green-500/20">
+                 <CheckCircle className="h-3 w-3 mr-2" />
                  {evaluatedStudents.length} Evaluated
                </Badge>
-               <Badge variant="outline" className="px-3 py-1">
-                 <Clock className="h-3 w-3 mr-2 text-amber-500" />
+               <Badge variant="outline" className="px-3 py-1 bg-amber-500/5 text-amber-600 border-amber-500/20">
+                 <Clock className="h-3 w-3 mr-2" />
                  {pendingStudents.length} Pending
                </Badge>
             </div>
@@ -228,7 +256,7 @@ const ClassDetail = () => {
                             ) : (
                               students.map(s => (
                                 <SelectItem key={s.id} value={String(s.id)} className="cursor-pointer">
-                                  {s.name} ({s.rollNumber}) {s.evaluated ? '✅' : '⏳'}
+                                  {s.name} ({s.rollNumber}) {s.evaluated ? 'Evaluated' : 'Pending'}
                                 </SelectItem>
                               ))
                             )}
@@ -283,21 +311,63 @@ const ClassDetail = () => {
                       <div className="text-center py-12 text-muted-foreground">No students evaluated yet.</div>
                     ) : (
                       <div className="space-y-3">
+                        {/* Header Row */}
+                        <div className="grid grid-cols-7 px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-t-lg">
+                          <div className="col-span-1">Student Name</div>
+                          <div className="col-span-1">Subject</div>
+                          <div className="col-span-1 text-center">Marks</div>
+                          <div className="col-span-1 text-center">Grade</div>
+                          <div className="col-span-1 text-center">Result</div>
+                          <div className="col-span-2 text-right px-2">Actions</div>
+                        </div>
+
                         {evaluatedStudents.map(s => (
-                          <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/50 border hover:bg-muted transition-colors">
-                            <div>
-                              <p className="font-semibold">{s.name}</p>
-                              <p className="text-xs text-muted-foreground">Roll: {s.rollNumber}</p>
+                          <div key={s.id} className="grid grid-cols-7 items-center p-4 rounded-lg bg-muted/50 border hover:bg-muted transition-colors gap-4">
+                            <div className="col-span-1">
+                              <p className="font-semibold text-sm">{s.name}</p>
+                              <p className="text-[10px] text-muted-foreground">Roll: {s.rollNumber}</p>
                             </div>
-                            <div className="flex items-center gap-4">
-                              <div className="text-right">
-                                <p className="font-bold text-lg">{s.marks}/50</p>
-                                <Badge className="bg-primary">{s.grade}</Badge>
-                              </div>
-                              <Button size="sm" variant="ghost" onClick={() => {
-                                 setSelectedStudent(String(s.id));
-                                 setActiveTab('students');
-                              }}>Retry Eval</Button>
+                            <div className="col-span-1 text-muted-foreground text-xs uppercase">
+                              General
+                            </div>
+                            <div className="col-span-1 font-bold text-sm text-center">
+                              {s.marks}/50
+                            </div>
+                            <div className="col-span-1 flex justify-center">
+                              <Badge variant="outline" className="text-[10px] h-5 px-3">{s.grade}</Badge>
+                            </div>
+                            <div className="col-span-1 flex justify-center">
+                               <Badge 
+                                 className={`text-[10px] h-5 px-3 ${
+                                   s.passStatus === 'PASS' 
+                                     ? 'bg-green-500 hover:bg-green-600' 
+                                     : 'bg-destructive hover:bg-destructive/90'
+                                 }`}
+                               >
+                                 {s.passStatus}
+                               </Badge>
+                            </div>
+                            <div className="col-span-2 flex justify-end gap-2 px-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="h-8 text-xs gap-1 border-primary/20 hover:bg-primary/5 text-primary"
+                                onClick={() => handleViewResult(s)}
+                              >
+                                <Eye className="h-3 w-3" /> View Result
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  navigate(`/teacher/class/${classId}/evaluate/${s.id}`, {
+                                    state: { student: s, reEvaluate: true }
+                                  });
+                                }}
+                              >
+                                Re-Evaluate
+                              </Button>
                             </div>
                           </div>
                         ))}
@@ -319,7 +389,7 @@ const ClassDetail = () => {
                   </CardHeader>
                   <CardContent>
                     {pendingStudents.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">All students have been evaluated! 🎉</div>
+                      <div className="text-center py-12 text-muted-foreground">All students have been evaluated.</div>
                     ) : (
                       <div className="grid gap-2">
                         {pendingStudents.map(s => (
@@ -345,6 +415,103 @@ const ClassDetail = () => {
           </div>
         </div>
       </main>
+
+      {/* ── VIEW RESULT MODAL ── */}
+      <Dialog open={isViewModalOpen} onOpenChange={setIsViewModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-2xl">
+              <GraduationCap className="h-6 w-6 text-primary" />
+              Evaluation Report: {selectedEval?.studentName}
+            </DialogTitle>
+            <DialogDescription>
+              Stored assessment record generated on {selectedEval && new Date(selectedEval.created_at).toLocaleString()}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoadingEval ? (
+            <div className="py-20 flex flex-col items-center justify-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              <p className="text-muted-foreground animate-pulse">Retrieving and Hydrating Evaluation Data...</p>
+            </div>
+          ) : selectedEval ? (
+            <div className="space-y-6 py-4">
+              {/* Score Summary */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card className="bg-primary/5 border-primary/20">
+                  <CardContent className="pt-6 text-center">
+                    <p className="text-sm text-muted-foreground uppercase font-semibold">Marks Obtained</p>
+                    <p className="text-4xl font-bold text-primary">{selectedEval.total_marks}/{selectedEval.max_marks}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-primary/5 border-primary/20">
+                  <CardContent className="pt-6 text-center">
+                    <p className="text-sm text-muted-foreground uppercase font-semibold">Percentage</p>
+                    <p className="text-4xl font-bold text-primary">{selectedEval.percentage}%</p>
+                  </CardContent>
+                </Card>
+                <Card className={`${selectedEval.result === 'PASS' ? 'bg-green-500/10 border-green-500/20' : 'bg-destructive/10 border-destructive/20'}`}>
+                  <CardContent className="pt-6 text-center">
+                    <p className="text-sm text-muted-foreground uppercase font-semibold">Result</p>
+                    <p className={`text-4xl font-bold ${selectedEval.result === 'PASS' ? 'text-green-600' : 'text-destructive'}`}>
+                      {selectedEval.result}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Question Breakdown */}
+              <div className="space-y-3">
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" /> Question-wise Breakdown
+                </h3>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="px-4 py-2 text-left">Q.No</th>
+                        <th className="px-4 py-2 text-left">Marks</th>
+                        <th className="px-4 py-2 text-left">Feedback Insight</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {Object.entries(selectedEval.question_details).map(([qNum, details]: [string, any]) => (
+                        <tr key={qNum} className="hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">Question {qNum}</td>
+                          <td className="px-4 py-3">
+                            <Badge variant="secondary">{details.marks_obtained}/{details.max_marks}</Badge>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                            {details.examiner_note}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Overall Feedback */}
+              <div className="p-4 rounded-lg bg-muted border space-y-2">
+                <h3 className="font-bold flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Evaluator Summary Note
+                </h3>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed text-muted-foreground">
+                  {selectedEval.feedback}
+                </p>
+              </div>
+              
+              <div className="pt-4 border-t text-[10px] text-muted-foreground text-center">
+                This is a read-only snapshot. To re-run the AI pipeline, use the 'Re-Evaluate' function in the dashboard.
+              </div>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-muted-foreground">
+              Failed to load evaluation record.
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

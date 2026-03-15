@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Navbar } from '@/components/Navbar';
 import { Button } from '@/components/ui/button';
@@ -14,13 +14,15 @@ interface LocationState {
     name: string;
     rollNumber: string;
   };
+  reEvaluate?: boolean;
 }
 
 const TeacherEvaluation = () => {
   const { classId, studentId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { student } = (location.state as LocationState) || {};
+  const { student, reEvaluate } = (location.state as LocationState) || {};
+  const isReEvaluateMode = Boolean(reEvaluate);
 
   const [answerSheet, setAnswerSheet] = useState<File | null>(null);
   const [answerSheetPreview, setAnswerSheetPreview] = useState<string | null>(null);
@@ -28,7 +30,10 @@ const TeacherEvaluation = () => {
   const [answerKeyPreview, setAnswerKeyPreview] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState('');
   const [answerSheetId, setAnswerSheetId] = useState<number | null>(null);
+  const [storedAnswerKeyId, setStoredAnswerKeyId] = useState<number | null>(null);
+  const [storedKeyFilename, setStoredKeyFilename] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [autoLoadDone, setAutoLoadDone] = useState(false);
 
   const handleAnswerSheetUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,7 +81,100 @@ const TeacherEvaluation = () => {
   const clearAnswerKey = () => {
     setAnswerKey(null);
     setAnswerKeyPreview(null);
+    setStoredAnswerKeyId(null);
+    setStoredKeyFilename(null);
   };
+
+  const loadStoredOCR = async () => {
+    if (!studentId) return;
+    setIsProcessing(true);
+    try {
+      const response = await api.get(`/stored-sheet/${studentId}`);
+      const data = response.data;
+      setExtractedText(data.ocr_text);
+      setAnswerSheetId(data.answer_sheet_id);
+      toast({
+        title: 'Stored OCR Loaded',
+        description: `Loaded sheet "${data.filename}" (ID: ${data.answer_sheet_id}) from database. No OCR credit used.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'No Stored Sheet Found',
+        description: error.response?.data?.detail || 'No previous OCR data found for this student.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const loadStoredKey = async () => {
+    setIsProcessing(true);
+    try {
+      const response = await api.get('/stored-key');
+      const data = response.data;
+      setStoredAnswerKeyId(data.answer_key_id);
+      setStoredKeyFilename(data.filename);
+      toast({
+        title: 'Stored Answer Key Loaded',
+        description: `Using key "${data.filename}" (ID: ${data.answer_key_id}) from database. No re-extraction needed.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'No Stored Key Found',
+        description: error.response?.data?.detail || 'No stored answer key found. Please upload one.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // ── AUTO-LOAD on Re-Evaluate mode ──────────────────────────────
+  // Triggered when navigated here with reEvaluate:true in router state.
+  // Fetches stored OCR text + stored answer key from DB — zero new API calls.
+  useEffect(() => {
+    if (!isReEvaluateMode || autoLoadDone || !studentId) return;
+    setAutoLoadDone(true); // prevent double-fire
+
+    const autoLoad = async () => {
+      setIsProcessing(true);
+      let sheetOk = false;
+      let keyOk = false;
+
+      // Load stored OCR
+      try {
+        const sheetRes = await api.get(`/stored-sheet/${studentId}`);
+        setExtractedText(sheetRes.data.ocr_text);
+        setAnswerSheetId(sheetRes.data.answer_sheet_id);
+        sheetOk = true;
+      } catch {
+        toast({ title: 'Stored Sheet Error', description: 'Could not load stored OCR text.', variant: 'destructive' });
+      }
+
+      // Load stored Answer Key
+      try {
+        const keyRes = await api.get('/stored-key');
+        setStoredAnswerKeyId(keyRes.data.answer_key_id);
+        setStoredKeyFilename(keyRes.data.filename);
+        keyOk = true;
+      } catch {
+        toast({ title: 'Stored Key Error', description: 'Could not load stored answer key.', variant: 'destructive' });
+      }
+
+      setIsProcessing(false);
+
+      if (sheetOk && keyOk) {
+        toast({
+          title: '✅ Re-Evaluation Ready',
+          description: 'Stored OCR and answer key loaded. Click Evaluate Answers to proceed.',
+        });
+      }
+    };
+
+    autoLoad();
+  }, [isReEvaluateMode, studentId, autoLoadDone]);
+  // ───────────────────────────────────────────────────────────────
 
   const handleProcessOCR = async () => {
     if (!answerSheet) {
@@ -147,11 +245,11 @@ const TeacherEvaluation = () => {
   };
 
   const handleEvaluate = async () => {
-    if (!answerSheetId || !answerKey) {
+    if (!answerSheetId || (!answerKey && !storedAnswerKeyId)) {
       toast({
-        title: "Missing Information",
-        description: "Please process the answer sheet first and upload an answer key.",
-        variant: "destructive",
+        title: 'Missing Information',
+        description: 'Please load or process an answer sheet AND provide an answer key (upload or load stored).',
+        variant: 'destructive',
       });
       return;
     }
@@ -159,18 +257,20 @@ const TeacherEvaluation = () => {
     setIsProcessing(true);
 
     try {
-      // 1. Upload Answer Key to DB
-      const keyFormData = new FormData();
-      keyFormData.append('file', answerKey);
+      // 1. Resolve Answer Key ID — use stored if already loaded, else upload new
+      let answerKeyId: number | null = storedAnswerKeyId;
 
-      const keyResponse = await api.post('/upload-answer-key', keyFormData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      const answerKeyId = keyResponse.data.answer_key_id;
+      if (!answerKeyId && answerKey) {
+        const keyFormData = new FormData();
+        keyFormData.append('file', answerKey);
+        const keyResponse = await api.post('/upload-answer-key', keyFormData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        answerKeyId = keyResponse.data.answer_key_id;
+      }
 
       if (!answerKeyId) {
-        toast({ title: "Answer Key Error", description: "Failed to upload answer key.", variant: "destructive" });
+        toast({ title: 'Answer Key Error', description: 'No answer key available. Upload a file or load stored key.', variant: 'destructive' });
         setIsProcessing(false);
         return;
       }
@@ -199,7 +299,7 @@ const TeacherEvaluation = () => {
             questions.push({
               number: parseInt(qNum),
               answer: `Question ${qNum} Response (See feedback for details)`,
-              marks: details.marks,
+              marks: details.marks_obtained,
               maxMarks: details.max_marks
             });
           });
@@ -265,7 +365,14 @@ const TeacherEvaluation = () => {
               Back to Class {classId}
             </Button>
 
-            <h1 className="text-3xl font-bold mb-2">Evaluate Answer Sheet</h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-3xl font-bold">Evaluate Answer Sheet</h1>
+              {isReEvaluateMode && (
+                <span className="bg-amber-500/20 text-amber-600 border border-amber-500/30 px-3 py-1 rounded-full text-sm font-semibold">
+                  Re-Evaluation Mode
+                </span>
+              )}
+            </div>
             {student && (
               <p className="text-muted-foreground">
                 Student: {student.name} (Roll: {student.rollNumber})
@@ -335,6 +442,14 @@ const TeacherEvaluation = () => {
                         <ScanText className="h-4 w-4 mr-2" />
                         {isProcessing ? 'Processing OCR...' : 'Process with OCR'}
                       </Button>
+                      <Button
+                        variant="outline"
+                        onClick={loadStoredOCR}
+                        disabled={isProcessing}
+                        className="w-full text-xs"
+                      >
+                        ↩ Load Stored OCR (No Credit Used)
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -358,22 +473,42 @@ const TeacherEvaluation = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {!answerKey ? (
-                    <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-primary transition-base cursor-pointer">
-                      <Input
-                        id="answerKey"
-                        type="file"
-                        accept="image/*,.pdf,.txt"
-                        onChange={handleAnswerKeyUpload}
-                        className="hidden"
-                      />
-                      <label htmlFor="answerKey" className="cursor-pointer">
-                        <Upload className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
-                        <p className="text-sm font-medium mb-1">Upload Answer Key</p>
-                        <p className="text-xs text-muted-foreground">
-                          PNG, JPG, PDF, or TXT
-                        </p>
-                      </label>
+                  {!answerKey && !storedAnswerKeyId ? (
+                    <div className="space-y-3">
+                      <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-base cursor-pointer">
+                        <Input
+                          id="answerKey"
+                          type="file"
+                          accept="image/*,.pdf,.txt"
+                          onChange={handleAnswerKeyUpload}
+                          className="hidden"
+                        />
+                        <label htmlFor="answerKey" className="cursor-pointer">
+                          <Upload className="h-10 w-10 mx-auto mb-2 text-muted-foreground" />
+                          <p className="text-sm font-medium mb-1">Upload New Answer Key</p>
+                          <p className="text-xs text-muted-foreground">PNG, JPG, PDF, or TXT</p>
+                        </label>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={loadStoredKey}
+                        disabled={isProcessing}
+                        className="w-full text-xs"
+                      >
+                        ↩ Use Stored Answer Key (No Credit Used)
+                      </Button>
+                    </div>
+                  ) : storedAnswerKeyId ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm p-3 rounded-lg bg-green-500/10 border border-green-500/30">
+                        <FileText className="h-4 w-4 text-green-600" />
+                        <span className="font-medium text-green-700 dark:text-green-400 truncate">
+                          Stored: {storedKeyFilename} (ID: {storedAnswerKeyId})
+                        </span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={clearAnswerKey} className="w-full text-xs">
+                        Clear & Upload New Key
+                      </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -430,7 +565,7 @@ const TeacherEvaluation = () => {
             <Button
               size="lg"
               onClick={handleEvaluate}
-              disabled={isProcessing || !answerSheetId || !answerKey}
+              disabled={isProcessing || !answerSheetId || (!answerKey && !storedAnswerKeyId)}
               className="px-12"
             >
               {isProcessing ? 'Evaluating...' : 'Evaluate Answers'}

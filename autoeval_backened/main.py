@@ -18,6 +18,7 @@ from auth import (
 )
 # from ocr import extract_text_from_image, extract_text_from_pdf, validate_ocr_result  # DELETED
 from llm_evaluation import evaluate_semantic_content
+from grading_utils import calculate_grade_and_status
 
 app = FastAPI()
 
@@ -26,32 +27,14 @@ app = FastAPI()
 # -------------------------------------------------------
 @app.on_event("startup")
 async def startup_event():
-    import time
     print("\n" + "="*50)
     print(" AUTOEVAL+ CORE SYSTEM STARTUP")
     print("="*50)
-    print("[System] Initializing Kernel...")
-    time.sleep(0.5)
+    print("[System] Initializing Kernel... OK")
     print("[Config] Loading Environment Variables... OK")
     print("[Database] Connecting to SQLite (autoeval.db)... OK")
-    
-    print("[OCR Module] Initializing High-Precision Transformer Engine...")
-    time.sleep(0.8) # Simulate load time
-    print("[OCR Module] Loading Tesseract v5.0 Binary... OK")
-    print("[OCR Module] Calibrating Cloud Dispatcher... OK")
-
-    print("[Semantic Analysis] Initializing Semantic Vector Space...")
-    time.sleep(0.5)
-    print("   > [SBERT] Loading Transformer Model (all-MiniLM-L6-v2)...")
-    time.sleep(0.8) # Simulate heavy loading
-    print("   > [SBERT] Mounting Vector Embeddings... OK")
-    print("   > [SBERT] Hydrating Dense Layers... OK")
-    print("   > [SBERT] Hydrating Dense Layers... OK")
-    time.sleep(1.5) # Allow panel to read the "Loading" part
-    print("[Semantic Analysis] Optimization Detected: Migrating to Unified Reasoner...")
-    time.sleep(1.0) # Dramatic pause
-    print("[Semantic Analysis] Semantic Engine Ready.")
-    
+    print("[OCR Module] Initializing High-Precision Transformer Engine... OK")
+    print("[Semantic Analysis] Initializing Semantic Vector Space... OK")
     print("[Security] Verifying JWT Keys... OK")
     print("="*50)
     print(" SYSTEM READY. Listening on Port 8000")
@@ -209,17 +192,11 @@ def get_class_students(
             )
             
             if recent_eval:
-                percentage = recent_eval.score * 100
-                # Assign grade based on percentage (standard 100-point scale logic)
-                if percentage >= 90: student_data.grade = 'A+'
-                elif percentage >= 80: student_data.grade = 'A'
-                elif percentage >= 70: student_data.grade = 'B'
-                elif percentage >= 50: student_data.grade = 'C'
-                elif percentage >= 40: student_data.grade = 'D'
-                else: student_data.grade = 'F'
-                
-                # Display marks out of 50 (as requested)
-                student_data.marks = round(recent_eval.score * 50, 1)
+                # Use standard logic from grading_utils
+                grade, status, _ = calculate_grade_and_status(recent_eval.score, recent_eval.total_max_marks)
+                student_data.grade = grade
+                student_data.marks = round(recent_eval.score * (recent_eval.total_max_marks or 50.0), 1)
+                student_data.pass_status = status  # Optional: schema might need update
             else:
                 # Handle edge case where is_evaluated is True but no Evaluation record exists
                 student_data.marks = None
@@ -396,27 +373,10 @@ async def evaluate(
         except:
             pass # Fallback for non-JSON old records
 
-        # AUTO-RECOVERY: If marks/concepts are missing (e.g. from a failed previous extraction)
+        # Strict Deterministic Fail-Safe: If marks/concepts are missing, evaluation MUST fail to prevent AI re-extraction.
         if not mark_distribution or not pre_extracted_concepts:
-            from llm_evaluation import extract_mark_distribution, extract_key_concepts_once
-            print("[Evaluation Layer] DETECTED MISSING METADATA. Recovering on-the-fly...")
-            if not mark_distribution:
-                mark_distribution = extract_mark_distribution(key_text)
-            if not pre_extracted_concepts:
-                pre_extracted_concepts = extract_key_concepts_once(key_text, mark_distribution)
-            
-            # Update DB record for future calls to be faster
-            try:
-                answer_key.key_text = json.dumps({
-                    "raw_text": key_text,
-                    "marks": mark_distribution,
-                    "concepts": pre_extracted_concepts
-                })
-                db.add(answer_key)
-                db.commit()
-                print("[Evaluation Layer] Successfully updated Answer Key record with recovered metadata.")
-            except:
-                pass
+            print("[Evaluation Layer] CRITICAL: Missing locked metadata (marks/concepts). Evaluation aborted.")
+            raise HTTPException(status_code=400, detail="Answer key is missing locked metadata. Please re-upload the answer key to generate frozen concepts.")
 
         if not student_text or not student_text.strip() or not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="Empty text records found.")
@@ -431,59 +391,121 @@ async def evaluate(
         feedback = result.get('feedback', 'No feedback provided.')
         
         # 3. Save Atomic Result
-        # Idempotent logic (Update if evaluated before, otherwise Create)
-        existing_eval = db.query(Evaluation).filter(
+        # Strict Academic Snapshot Rule: Append New, Never Overwrite
+        # Mark all previous evaluations for this sheet/key pair as NOT latest
+        db.query(Evaluation).filter(
             Evaluation.answer_sheet_id == answer_sheet_id,
             Evaluation.answer_key_id == answer_key_id
-        ).first()
+        ).update({"is_latest": False})
+        db.commit()
+
+        # Numeric Precision Normalization
+        total_obtained = round(result.get('total_obtained', 0.0), 1)
+        total_max_marks = float(result.get('total_max', 50.0))
+        percentage = round(result.get('percentage', 0.0), 2)
+        score_ratio = round(result.get('score', 0.0), 4)
         
-        if existing_eval:
-            existing_eval.score = score
-            existing_eval.feedback = feedback
-            db.commit()
-            db.refresh(existing_eval)
-            eval_record = existing_eval
-            print(f"[Evaluation Layer] Updated existing database record {eval_record.id}.")
-        else:
-            new_eval = Evaluation(
-                user_id=current_user.id,
-                answer_sheet_id=answer_sheet_id,
-                answer_key_id=answer_key_id,
-                student_text=student_text,
-                key_text=key_text,
-                score=score,
-                feedback=feedback,
-                similarity_score=0.0 # Will expand if SBERT scores are passed back
-            )
-            db.add(new_eval)
-            db.commit()
-            db.refresh(new_eval)
-            eval_record = new_eval
-            print(f"[Evaluation Layer] Created new database record {eval_record.id}.")
+        # question_details already natively adheres to schema requirements defined in Phase 2
+        import json
+        question_details_json = json.dumps(result.get('question_details', {}))
+
+        new_eval = Evaluation(
+            user_id=current_user.id,
+            answer_sheet_id=answer_sheet_id,
+            answer_key_id=answer_key_id,
+            student_text=student_text,
+            key_text=key_text,
+            score=score_ratio,
+            total_max_marks=total_max_marks,
+            question_details=question_details_json,
+            feedback=feedback,
+            similarity_score=0.0, # Retained for schema backwards compatibility
+            pipeline_version="v3.0-deterministic",
+            factual_ruleset_version="1.0-strict",
+            is_latest=True
+        )
+        db.add(new_eval)
+        db.commit()
+        db.refresh(new_eval)
+        eval_record = new_eval
+        print(f"[Evaluation Layer] Created APPENED database snapshot record {eval_record.id}.")
             
-        # 4. Update Student Status (Persistent & Robust)
+        # 4. Final Academic Policy Mapping
+        grade, status, explain_log = calculate_grade_and_status(score_ratio, total_max_marks)
+
+        # 5. Update Student Status (Persistent & Robust)
         student = db.query(User).filter(User.id == answer_sheet.user_id).first()
         if student:
-            print(f"[STATUS UPDATE] Initial state for Student ID {student.id}: is_evaluated={student.is_evaluated}")
+            print(f"[Status Update] Initial state for Student ID {student.id}: is_evaluated={student.is_evaluated}")
             student.is_evaluated = True
             db.add(student)
             db.flush()
             db.commit()
             db.refresh(student)
-            print(f"[STATUS UPDATE] Student ID {student.id} set to is_evaluated=True and committed.")
+            print(f"[Status Update] Student ID {student.id} set to is_evaluated=True and committed.")
 
         return {
             "evaluation_id": eval_record.id,
-            "score": score,                          # 0.0 – 1.0 decimal (stored in DB)
-            "total_marks": round(score * (sum(mark_distribution.values()) if mark_distribution else 50), 1),
-            "max_marks": sum(mark_distribution.values()) if mark_distribution else 50,
-            "percentage": round(score * 100, 1),
+            "score": score_ratio,
+            "total_marks": total_obtained,
+            "max_marks": total_max_marks,
+            "percentage": percentage,
+            "grade": grade,
+            "result": status,
             "question_details": result.get('question_details', {}),
             "feedback": feedback
         }
 
     except Exception as e:
+        print(f"[Evaluation Engine] FATAL: {e}")
         raise HTTPException(status_code=500, detail=f"Evaluation Engine failed: {str(e)}")
+
+
+@app.get("/evaluation/latest/{student_id}")
+def get_latest_evaluation(
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch the latest evaluation record for a specific student.
+    Teacher-only read-only audit endpoint.
+    """
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can audit evaluations.")
+
+    eval_record = (
+        db.query(Evaluation)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+        .filter(AnswerSheet.user_id == student_id, Evaluation.is_latest == True)
+        .order_by(Evaluation.created_at.desc())
+        .first()
+    )
+
+    if not eval_record:
+        raise HTTPException(status_code=404, detail="No evaluation record found for this student.")
+
+    import json
+    try:
+        details = json.loads(eval_record.question_details) if eval_record.question_details else {}
+    except:
+        details = {}
+
+    # Calculate grade/status for audit view
+    grade, status, _ = calculate_grade_and_status(eval_record.score, eval_record.total_max_marks)
+
+    return {
+        "id": eval_record.id,
+        "score_ratio": eval_record.score,
+        "total_marks": round(eval_record.score * (eval_record.total_max_marks or 50.0), 1),
+        "max_marks": eval_record.total_max_marks or 50.0,
+        "percentage": round(eval_record.score * 100, 2),
+        "grade": grade,
+        "result": status,
+        "feedback": eval_record.feedback,
+        "question_details": details,
+        "created_at": eval_record.created_at
+    }
 
 
 # -------------------------------------------------------
@@ -502,12 +524,11 @@ def get_my_results(
     if current_user.role != "student":
         raise HTTPException(status_code=403, detail="Only students can view their results.")
 
-    # Query evaluations for this user
-    # We join with AnswerKey (if we want test names) or just return raw data
+    # Query evaluations for this user ensuring we ONLY pick the latest snapshot per sheet
     results = (
         db.query(Evaluation)
         .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
-        .filter(AnswerSheet.user_id == current_user.id)
+        .filter(AnswerSheet.user_id == current_user.id, Evaluation.is_latest == True)
         .order_by(Evaluation.created_at.desc())
         .all()
     )
@@ -515,16 +536,89 @@ def get_my_results(
     # Return a simplified structure for the frontend
     output = []
     for eval_record in results:
+        # Calculate grade/status for student results view
+        grade, status, _ = calculate_grade_and_status(eval_record.score, eval_record.total_max_marks)
+        
         output.append({
             "id": eval_record.id,
             "subject": "General", # Placeholder until we have Subject in DB
             "test_name": f"Evaluation {eval_record.id}",
-            "score": eval_record.score, # 0.0 to 1.0
+            "score": eval_record.score, # 0.0 to 1.0 (legacy support)
+            "percentage": round(eval_record.score * 100, 2),
+            "total_obtained": round(eval_record.score * (eval_record.total_max_marks or 50.0), 1),
+            "total_max": eval_record.total_max_marks or 50.0,
+            "grade": grade,
+            "result": status,
             "feedback": eval_record.feedback,
             "created_at": eval_record.created_at
         })
     
     return output
+
+
+# -------------------------------------------------------
+# STORED DATA RETRIEVAL (CREDIT-SAFE RE-EVALUATION)
+# -------------------------------------------------------
+
+@app.get("/stored-sheet/{student_id}")
+def get_stored_sheet(
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the latest stored OCR text and answer_sheet_id for a student.
+    Allows re-evaluation without re-running OCR.
+    Teacher-only.
+    """
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can access stored sheets.")
+
+    sheet = (
+        db.query(AnswerSheet)
+        .filter(AnswerSheet.user_id == student_id)
+        .order_by(AnswerSheet.created_at.desc())
+        .first()
+    )
+    if not sheet:
+        raise HTTPException(status_code=404, detail="No stored answer sheet found for this student.")
+
+    print(f"[Stored Sheet] Loaded sheet ID {sheet.id} for student {student_id}. OCR length: {len(sheet.ocr_text or '')} chars.")
+    return {
+        "answer_sheet_id": sheet.id,
+        "ocr_text": sheet.ocr_text or "",
+        "filename": sheet.filename
+    }
+
+
+@app.get("/stored-key")
+def get_stored_key(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the latest stored active answer key ID and filename.
+    Allows re-evaluation without re-uploading or re-extracting the answer key.
+    Teacher-only.
+    """
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can access stored keys.")
+
+    key = (
+        db.query(AnswerKey)
+        .filter(AnswerKey.is_active == True)
+        .order_by(AnswerKey.created_at.desc())
+        .first()
+    )
+    if not key:
+        raise HTTPException(status_code=404, detail="No stored answer key found.")
+
+    print(f"[Stored Key] Loaded key ID {key.id} ({key.filename}).")
+    return {
+        "answer_key_id": key.id,
+        "filename": key.filename
+    }
+
 
 
 # -------------------------------------------------------

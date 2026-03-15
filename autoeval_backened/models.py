@@ -137,8 +137,14 @@ class Evaluation(Base):
     
     student_text = Column(Text, nullable=False)
     key_text = Column(Text, nullable=False)
-    score = Column(Float, nullable=False)
-    feedback = Column(String(500), nullable=False)
+    score = Column(Float, nullable=False) # Stores the percentage ratio
+    total_max_marks = Column(Float, nullable=True) # Frozen max possible marks
+    question_details = Column(Text, nullable=True) # Full JSON breakdown string
+    pipeline_version = Column(String(50), nullable=False, default="v3.0-deterministic")
+    factual_ruleset_version = Column(String(50), nullable=True, default="1.0-strict")
+    is_latest = Column(Boolean, nullable=False, default=True) # Snapshot tracker
+    
+    feedback = Column(Text, nullable=False) # Increased from String(500) to Text to hold detailed breakdowns
     similarity_score = Column(Float, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())

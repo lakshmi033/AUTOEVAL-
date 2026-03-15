@@ -1,0 +1,13 @@
+{
+    "pass_mark": 20,
+    "max_marks": 50,
+    "grade_bands": [
+        {"min": 45, "max": 50, "grade": "A+"},
+        {"min": 40, "max": 44, "grade": "A"},
+        {"min": 35, "max": 39, "grade": "B+"},
+        {"min": 30, "max": 34, "grade": "B"},
+        {"min": 25, "max": 29, "grade": "C"},
+        {"min": 20, "max": 24, "grade": "D"},
+        {"min": 0, "max": 19, "grade": "F"}
+    ]
+}

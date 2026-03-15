@@ -7,6 +7,7 @@ export interface Student {
     evaluated: boolean;
     marks?: number;
     grade?: string;
+    passStatus?: string;
     email?: string;
 }
 
@@ -84,6 +85,7 @@ export const ClassroomService = {
                 evaluated: s.evaluated || false,
                 marks: s.marks,
                 grade: s.grade,
+                passStatus: s.pass_status,
                 email: s.email
             }));
         } catch (error) {
@@ -111,10 +113,22 @@ export const ClassroomService = {
                 evaluated: s.evaluated || false,
                 marks: s.marks,
                 grade: s.grade,
+                passStatus: s.pass_status,
                 email: s.email
             };
         } catch (error) {
             console.error("Error adding student:", error);
+            throw error;
+        }
+    },
+
+    // Fetch latest evaluation for a student
+    getLatestEvaluation: async (studentId: string | number): Promise<any> => {
+        try {
+            const response = await api.get(`/evaluation/latest/${studentId}`);
+            return response.data;
+        } catch (error) {
+            console.error(`Error fetching evaluation for student ${studentId}:`, error);
             throw error;
         }
     }

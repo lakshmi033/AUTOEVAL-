@@ -1,6 +1,27 @@
+import os
+import random
+import numpy as np
+import torch
 import warnings
-# Suppress torch warnings if any
+# Suppress torch warnings
 warnings.filterwarnings("ignore")
+
+# --- STRICT DETERMINISTIC CONFIGURATION ---
+def set_determinism(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    
+    # Enforce CPU-only deterministic behavior
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.set_num_threads(1) # Eliminate OS-level thread-order variation
+    
+    # Required for deterministic algorithms on some backends
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+set_determinism(42)
 
 try:
     from sentence_transformers import SentenceTransformer, util
@@ -20,9 +41,13 @@ def load_sbert_model():
     global _SBERT_MODEL
     if _SBERT_MODEL is None:
         try:
-            print("[SBERT Engine] Loading Transformer Model (all-MiniLM-L6-v2)...")
-            _SBERT_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-            print("[SBERT Engine] Model Loaded Successfully.")
+            print("[SBERT Engine] Loading Transformer Model (all-MiniLM-L6-v2) | Revision: e4ce98d")
+            # We lock the revision to ensure identical embeddings across installations
+            _SBERT_MODEL = SentenceTransformer(
+                'sentence-transformers/all-MiniLM-L6-v2',
+                revision='e4ce98d8c7e3a309b68f2e34f32ae629a9203002'
+            )
+            print("[SBERT Engine] Model Locked & Loaded Successfully.")
         except Exception as e:
             print(f"ERROR: Failed to load SBERT Model: {e}")
             _SBERT_MODEL = None

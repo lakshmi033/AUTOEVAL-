@@ -3,6 +3,10 @@
   "python.terminal.activateEnvironment": true,
   "python.analysis.autoImportCompletions": true,
   "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/autoeval_backened"
+  ],
+  "python.languageServer": "Pylance",
   "files.exclude": {
     "**/__pycache__": true,
     "**/*.pyc": true,
