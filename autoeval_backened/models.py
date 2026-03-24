@@ -31,6 +31,7 @@ class User(Base):
     role = Column(String(20), nullable=False)  # 'teacher' or 'student'
     is_active = Column(Boolean, nullable=False, default=True)
     is_evaluated = Column(Boolean, nullable=False, default=False)
+    subject = Column(String(50), nullable=True)  # Teacher's subject: Civics, History, Geography
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -116,6 +117,7 @@ class AnswerKey(Base):
     file_path = Column(String(500), nullable=False)
     file_type = Column(String(50), nullable=False)
     key_text = Column(Text, nullable=False)
+    subject = Column(String(100), nullable=True)  # e.g. 'Civics', 'History', 'Geography'
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -143,6 +145,7 @@ class Evaluation(Base):
     pipeline_version = Column(String(50), nullable=False, default="v3.0-deterministic")
     factual_ruleset_version = Column(String(50), nullable=True, default="1.0-strict")
     is_latest = Column(Boolean, nullable=False, default=True) # Snapshot tracker
+    subject = Column(String(100), nullable=True)  # propagated from AnswerKey.subject
     
     feedback = Column(Text, nullable=False) # Increased from String(500) to Text to hold detailed breakdowns
     similarity_score = Column(Float, nullable=False)

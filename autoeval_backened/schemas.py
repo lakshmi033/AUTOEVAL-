@@ -29,7 +29,9 @@ class UserRegister(BaseModel):
     roll_number: Optional[str] = None
     department: Optional[str] = None
     full_name: Optional[str] = None
-    classroom_id: Optional[int] = None  # New field for class selection
+    classroom_id: Optional[int] = None
+    subject: Optional[str] = None   # Teacher subject: Civics, History, Geography
+    teacher_code: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr

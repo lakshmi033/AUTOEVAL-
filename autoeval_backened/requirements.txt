@@ -17,4 +17,5 @@ openai==2.21.0
 sentence-transformers==5.1.2
 torch==2.10.0
 torchvision==0.25.0
-
+pandas==2.2.3
+openpyxl==3.1.5

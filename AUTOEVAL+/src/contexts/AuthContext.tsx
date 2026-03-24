@@ -180,7 +180,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     password: string,
     confirmPassword: string,
     department?: string,
-    teacherCode?: string
+    teacherCode?: string,
+    teacherSubject?: string
   ): Promise<boolean> => {
     if (password !== confirmPassword) {
       toast({ title: "Error", description: "Passwords do not match", variant: "destructive" });
@@ -193,7 +194,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         password: password,
         role: 'teacher',
         department: department,
-        teacher_code: teacherCode
+        teacher_code: teacherCode,
+        subject: teacherSubject
       });
 
       toast({ title: "Account Created!", description: "Please login now." });

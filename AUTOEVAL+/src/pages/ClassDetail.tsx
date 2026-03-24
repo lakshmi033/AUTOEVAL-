@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ClassroomService, Student } from '@/services/ClassroomService';
+import { api } from '@/lib/api';
 import { Navbar } from '@/components/Navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -114,6 +115,37 @@ const ClassDetail = () => {
     }
   };
 
+  const handleExportMarks = async () => {
+    try {
+      const response = await api.get('/teacher/export-marks', { responseType: 'blob' });
+      // Create a blob URL and trigger download
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      // Get filename from content-disposition header if possible, otherwise use default
+      const disposition = response.headers['content-disposition'];
+      let filename = 'MarkList.xlsx';
+      if (disposition && disposition.indexOf('attachment') !== -1) {
+          const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+          const matches = filenameRegex.exec(disposition);
+          if (matches != null && matches[1]) {
+            filename = matches[1].replace(/['"]/g, '');
+          }
+      }
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+       toast({
+         title: "Export Failed",
+         description: "Failed to download the mark list. Please check if you have evaluated students.",
+         variant: "destructive"
+       });
+    }
+  };
+
   const pendingStudents = students.filter(s => !s.evaluated);
   const evaluatedStudents = students.filter(s => s.evaluated);
 
@@ -173,6 +205,10 @@ const ClassDetail = () => {
                  <Clock className="h-3 w-3 mr-2" />
                  {pendingStudents.length} Pending
                </Badge>
+               <Button onClick={handleExportMarks} variant="outline" size="sm" className="ml-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200">
+                 <FileText className="h-4 w-4 mr-2" />
+                 Export Mark List
+               </Button>
             </div>
           </div>
 

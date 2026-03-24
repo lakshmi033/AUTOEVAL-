@@ -178,33 +178,29 @@ def get_class_students(
         student_data = schemas.StudentProfileRead.from_orm(user)
         student_data.roll_number = roll
         
-        # Check for Persistent Evaluation Status
-        if user.is_evaluated:
+        # Fetch latest marks for display
+        # Filter strictly by teacher's subject
+        recent_eval = (
+            db.query(Evaluation)
+            .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+            .filter(AnswerSheet.user_id == user.id)
+            .filter(Evaluation.subject == current_user.subject)
+            .order_by(Evaluation.created_at.desc())
+            .first()
+        )
+        
+        if recent_eval:
             student_data.evaluated = True
-            
-            # Fetch latest marks for display
-            recent_eval = (
-                db.query(Evaluation)
-                .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
-                .filter(AnswerSheet.user_id == user.id)
-                .order_by(Evaluation.created_at.desc())
-                .first()
-            )
-            
-            if recent_eval:
-                # Use standard logic from grading_utils
-                grade, status, _ = calculate_grade_and_status(recent_eval.score, recent_eval.total_max_marks)
-                student_data.grade = grade
-                student_data.marks = round(recent_eval.score * (recent_eval.total_max_marks or 50.0), 1)
-                student_data.pass_status = status  # Optional: schema might need update
-            else:
-                # Handle edge case where is_evaluated is True but no Evaluation record exists
-                student_data.marks = None
-                student_data.grade = None
+            # Use standard logic from grading_utils
+            grade, status, _ = calculate_grade_and_status(recent_eval.score, recent_eval.total_max_marks)
+            student_data.grade = grade
+            student_data.marks = round(recent_eval.score * (recent_eval.total_max_marks or 50.0), 1)
+            student_data.pass_status = status  # Optional: schema might need update
         else:
             student_data.evaluated = False
             student_data.marks = None
             student_data.grade = None
+            student_data.pass_status = None
             
         students_with_rolls.append(student_data)
 
@@ -274,6 +270,7 @@ def upload_answer_sheet(
 @app.post("/upload-answer-key")
 def upload_answer_key(
     file: UploadFile = File(...),
+    subject: str = Form(None),  # e.g. 'Civics', 'History', 'Geography'
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -322,6 +319,7 @@ def upload_answer_key(
             file_path=file_path,
             file_type=file_ext.split('.')[-1],
             key_text=structured_key_text,
+            subject=subject,  # Stored from form field; None if not provided
             is_active=True
         )
         db.add(new_key)
@@ -419,6 +417,7 @@ async def evaluate(
             total_max_marks=total_max_marks,
             question_details=question_details_json,
             feedback=feedback,
+            subject=answer_key.subject,  # Propagate subject from answer key
             similarity_score=0.0, # Retained for schema backwards compatibility
             pipeline_version="v3.0-deterministic",
             factual_ruleset_version="1.0-strict",
@@ -591,6 +590,105 @@ def get_stored_sheet(
     }
 
 
+@app.get("/teacher/export-marks")
+def export_teacher_marks(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exports all evaluated students for the logged-in teacher's subject to an Excel file.
+    """
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Only teachers can export marks.")
+
+    import pandas as pd
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+
+    # Query evaluations for the teacher's subject
+    evaluations = (
+        db.query(Evaluation, User.full_name, Enrollment.roll_number)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+        .join(User, AnswerSheet.user_id == User.id)
+        .join(Enrollment, User.id == Enrollment.student_id)
+        .filter(Evaluation.is_latest == True)
+        .filter(Evaluation.subject == current_user.subject)
+        .all()
+    )
+
+    if not evaluations:
+        raise HTTPException(status_code=404, detail="No evaluated students found for your subject.")
+
+    import json
+    data = []
+    
+    for eval_record, student_name, roll_number in evaluations:
+        grade, status, _ = calculate_grade_and_status(eval_record.score, eval_record.total_max_marks)
+        marks_obtained = round(eval_record.score * (eval_record.total_max_marks or 50.0), 1)
+        percentage = round(eval_record.score * 100, 2)
+        
+        row = {
+            "Student Name": student_name,
+            "Roll Number": roll_number,
+            "Subject": eval_record.subject,
+        }
+        
+        # Parse question details
+        try:
+            q_details = json.loads(eval_record.question_details) if eval_record.question_details else {}
+        except Exception:
+            q_details = {}
+            
+        # Add Q1 to Q10 marks
+        for i in range(1, 11):
+            q_mark = None
+            
+            # The keys might be "1", "Q1", or "Question 1"
+            possible_keys = [str(i), f"Q{i}", f"Question {i}"]
+            found_key = None
+            for pk in possible_keys:
+                if pk in q_details:
+                    found_key = pk
+                    break
+                    
+            if found_key:
+                detail = q_details[found_key]
+                if isinstance(detail, dict):
+                    if "marks_obtained" in detail:
+                        q_mark = detail["marks_obtained"]
+                    elif "score" in detail and "marks_total" in detail:
+                        q_mark = round(detail["score"] * detail["marks_total"], 1)
+                else:
+                    # In case the value is directly a number
+                    try:
+                        q_mark = float(detail)
+                    except:
+                        pass
+                        
+            row[f"Q{i} Marks"] = q_mark
+            
+        # Add aggregate metrics
+        row["Total Marks"] = marks_obtained
+        row["Maximum Marks"] = eval_record.total_max_marks or 50.0
+        row["Percentage"] = percentage
+        row["Grade"] = grade
+        row["Pass / Fail"] = status
+        
+        data.append(row)
+
+    df = pd.DataFrame(data)
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Mark List')
+    output.seek(0)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="MarkList_{current_user.subject}.xlsx"'
+    }
+    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @app.get("/stored-key")
 def get_stored_key(
     current_user: User = Depends(get_current_user),
@@ -619,6 +717,28 @@ def get_stored_key(
         "filename": key.filename
     }
 
+
+
+# -------------------------------------------------------
+# TEACHER PROFILE API
+# -------------------------------------------------------
+
+@app.get("/teacher/me")
+def get_teacher_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the logged-in teacher's profile including their subject.
+    """
+    if current_user.role != "teacher":
+        raise HTTPException(status_code=403, detail="Teacher access only.")
+    return {
+        "id": current_user.id,
+        "full_name": current_user.full_name,
+        "email": current_user.email,
+        "subject": current_user.subject,
+    }
 
 
 # -------------------------------------------------------
@@ -667,7 +787,8 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
         email=user_in.email,
         hashed_password=hashed_pw,
         full_name=full_name,
-        role=user_in.role
+        role=user_in.role,
+        subject=user_in.subject if user_in.role == "teacher" else None
     )
     
     db.add(new_user)
@@ -713,4 +834,173 @@ def register_user(user_in: schemas.UserRegister, db: Session = Depends(get_db)):
         "user_id": new_user.id,
         "role": new_user.role,
         "full_name": new_user.full_name
+    }
+
+
+# -------------------------------------------------------
+# STUDENT DASHBOARD APIS (READ-ONLY, JWT PROTECTED)
+# -------------------------------------------------------
+
+@app.post("/student/login")
+def student_login(
+    user_in: UserLogin,
+    db: Session = Depends(get_db)
+):
+    """
+    Student login endpoint. Returns JWT.
+    Does NOT block on is_evaluated — frontend handles the display.
+    """
+    user = authenticate_user(db, email=user_in.email, password=user_in.password, required_role="student")
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials or not a student account.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "user_id": user.id}
+    )
+
+    # Fetch enrollment data for roll number + class name
+    enrollment = (
+        db.query(Enrollment)
+        .filter(Enrollment.student_id == user.id)
+        .first()
+    )
+    roll_number = enrollment.roll_number if enrollment else None
+    class_name = None
+    if enrollment:
+        classroom = db.query(Classroom).filter(Classroom.id == enrollment.classroom_id).first()
+        class_name = classroom.name if classroom else None
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "role": user.role,
+        "full_name": user.full_name,
+        "roll_number": roll_number,
+        "class_name": class_name,
+        "is_evaluated": user.is_evaluated,
+    }
+
+
+@app.get("/student/internals")
+def get_student_internals(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns a static list of internal exam sessions.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Access denied.")
+    return [
+        {"id": 1, "name": "Internals 1"},
+        {"id": 2, "name": "Internals 2"},
+    ]
+
+
+@app.get("/student/subjects/{internal_id}")
+def get_student_subjects(
+    internal_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns static subject list for the given internal.
+    Only Internals 1 has subjects for this demo.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Access denied.")
+    if internal_id == 1:
+        return ["Civics", "History", "Geography"]
+    return []
+
+
+@app.get("/student/marks/{subject}")
+def get_student_marks(
+    subject: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the latest evaluation marks for the logged-in student, filtered by subject.
+    Student_id is extracted from JWT — no path override possible.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    import json as _json
+
+    eval_record = (
+        db.query(Evaluation)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+        .filter(
+            AnswerSheet.user_id == current_user.id,
+            Evaluation.subject == subject,
+            Evaluation.is_latest == True
+        )
+        .order_by(Evaluation.created_at.desc())
+        .first()
+    )
+
+    if not eval_record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No evaluation found for subject '{subject}'."
+        )
+
+    try:
+        question_details = _json.loads(eval_record.question_details) if eval_record.question_details else {}
+    except Exception:
+        question_details = {}
+
+    total_obtained = round(eval_record.score * (eval_record.total_max_marks or 50.0), 1)
+    total_max = eval_record.total_max_marks or 50.0
+    percentage = round(eval_record.score * 100, 1)
+
+    return {
+        "subject": subject,
+        "total_marks": total_obtained,
+        "total_max_marks": total_max,
+        "percentage": percentage,
+        "question_details": question_details,
+        "evaluated_at": eval_record.created_at,
+    }
+
+
+@app.get("/student/feedback/{subject}")
+def get_student_feedback(
+    subject: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns stored teacher feedback for the logged-in student by subject.
+    Student_id is extracted from JWT — no path override possible.
+    """
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    eval_record = (
+        db.query(Evaluation)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+        .filter(
+            AnswerSheet.user_id == current_user.id,
+            Evaluation.subject == subject,
+            Evaluation.is_latest == True
+        )
+        .order_by(Evaluation.created_at.desc())
+        .first()
+    )
+
+    if not eval_record:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No feedback found for subject '{subject}'."
+        )
+
+    return {
+        "subject": subject,
+        "feedback": eval_record.feedback,
     }

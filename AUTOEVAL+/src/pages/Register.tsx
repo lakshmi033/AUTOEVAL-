@@ -25,6 +25,7 @@ const Register = () => {
   const [teacherConfirmPassword, setTeacherConfirmPassword] = useState('');
   const [department, setDepartment] = useState('');
   const [teacherCode, setTeacherCode] = useState('');
+  const [teacherSubject, setTeacherSubject] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const { registerStudent, registerTeacher, isAuthenticated, user } = useAuth();
@@ -64,7 +65,7 @@ const Register = () => {
     if (role === 'student') {
       await registerStudent(studentUsername, studentPassword, studentConfirmPassword, selectedClassId);
     } else {
-      await registerTeacher(teacherUsername, teacherPassword, teacherConfirmPassword, department || undefined, teacherCode);
+      await registerTeacher(teacherUsername, teacherPassword, teacherConfirmPassword, department || undefined, teacherCode, teacherSubject || undefined);
     }
 
     setIsLoading(false);
@@ -241,6 +242,20 @@ const Register = () => {
                     onChange={(e) => setDepartment(e.target.value)}
                     className="transition-base"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="teacherSubject">Subject</Label>
+                  <Select value={teacherSubject} onValueChange={setTeacherSubject}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your subject" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Civics">Civics</SelectItem>
+                      <SelectItem value="History">History</SelectItem>
+                      <SelectItem value="Geography">Geography</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { BookOpen } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ClassroomService, ClassroomWithStats } from '@/services/ClassroomService';
 import { toast } from '@/hooks/use-toast';
+import { api } from '@/lib/api';
 
 const TeacherDashboard = () => {
   const { user } = useAuth();
@@ -17,6 +19,7 @@ const TeacherDashboard = () => {
 
   const [classes, setClasses] = useState<ClassroomWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [teacherSubject, setTeacherSubject] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchClasses = async () => {
@@ -29,7 +32,14 @@ const TeacherDashboard = () => {
         setLoading(false);
       }
     };
+    const fetchTeacherProfile = async () => {
+      try {
+        const res = await api.get('/teacher/me');
+        setTeacherSubject(res.data.subject || null);
+      } catch { /* non-blocking */ }
+    };
     fetchClasses();
+    fetchTeacherProfile();
   }, []);
 
   return (
@@ -46,6 +56,13 @@ const TeacherDashboard = () => {
             <h1 className="text-3xl font-bold mb-2">
               Welcome, {user?.username || 'Teacher'}!
             </h1>
+            {teacherSubject && (
+              <div className="flex justify-center mt-2 mb-1">
+                <Badge className="text-sm px-4 py-1 bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15">
+                  Subject: {teacherSubject}
+                </Badge>
+              </div>
+            )}
             {user?.department && (
               <p className="text-muted-foreground">Department: {user.department}</p>
             )}
