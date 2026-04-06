@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ClassroomService, Student } from '@/services/ClassroomService';
 import { api } from '@/lib/api';
 import { Navbar } from '@/components/Navbar';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, UserPlus, Users, CheckCircle, Clock, GraduationCap, Eye, FileText, BarChart3 } from 'lucide-react';
+import { ArrowLeft, UserPlus, Users, CheckCircle, Clock, GraduationCap, Eye, FileText, BarChart3, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -22,6 +22,7 @@ import {
 const ClassDetail = () => {
   const { classId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [students, setStudents] = useState<Student[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'students' | 'evaluated' | 'pending'>('dashboard');
@@ -35,19 +36,23 @@ const ClassDetail = () => {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isLoadingEval, setIsLoadingEval] = useState(false);
 
-  // Fetch students on mount
-  useEffect(() => {
-    const fetchStudents = async () => {
-      if (!classId) return;
-      try {
-        const data = await ClassroomService.getStudents(classId);
-        setStudents(data);
-      } catch (error) {
-        toast({ title: "Error", description: "Failed to load students", variant: "destructive" });
-      }
-    };
-    fetchStudents();
+  // Fetch latest student list from backend (called on mount AND on every navigate-back)
+  const fetchStudents = useCallback(async () => {
+    if (!classId) return;
+    try {
+      const data = await ClassroomService.getStudents(classId);
+      setStudents(data);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to load students", variant: "destructive" });
+    }
   }, [classId]);
+
+  // Re-fetch whenever this page is (re-)navigated to.
+  // location.key changes on every navigate() call, even if the route is the same.
+  // This ensures updated marks/grades show immediately after returning from evaluation.
+  useEffect(() => {
+    fetchStudents();
+  }, [location.key, fetchStudents]);
 
   const handleAddStudent = async () => {
     if (!newStudentName.trim() || !newStudentRoll.trim()) {
@@ -348,17 +353,17 @@ const ClassDetail = () => {
                     ) : (
                       <div className="space-y-3">
                         {/* Header Row */}
-                        <div className="grid grid-cols-7 px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-t-lg">
+                        <div className="grid grid-cols-8 px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-t-lg">
                           <div className="col-span-1">Student Name</div>
                           <div className="col-span-1">Subject</div>
                           <div className="col-span-1 text-center">Marks</div>
                           <div className="col-span-1 text-center">Grade</div>
                           <div className="col-span-1 text-center">Result</div>
-                          <div className="col-span-2 text-right px-2">Actions</div>
+                          <div className="col-span-3 text-right px-2">Actions</div>
                         </div>
 
                         {evaluatedStudents.map(s => (
-                          <div key={s.id} className="grid grid-cols-7 items-center p-4 rounded-lg bg-muted/50 border hover:bg-muted transition-colors gap-4">
+                          <div key={s.id} className="grid grid-cols-8 items-center p-4 rounded-lg bg-muted/50 border hover:bg-muted transition-colors gap-4">
                             <div className="col-span-1">
                               <p className="font-semibold text-sm">{s.name}</p>
                               <p className="text-[10px] text-muted-foreground">Roll: {s.rollNumber}</p>
@@ -383,7 +388,7 @@ const ClassDetail = () => {
                                  {s.passStatus}
                                </Badge>
                             </div>
-                            <div className="col-span-2 flex justify-end gap-2 px-2">
+                            <div className="col-span-3 flex justify-end gap-2 px-2">
                               <Button 
                                 size="sm" 
                                 variant="outline" 
@@ -392,17 +397,15 @@ const ClassDetail = () => {
                               >
                                 <Eye className="h-3 w-3" /> View Result
                               </Button>
-                              <Button 
-                                size="sm" 
-                                variant="ghost" 
-                                className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => {
-                                  navigate(`/teacher/class/${classId}/evaluate/${s.id}`, {
-                                    state: { student: s, reEvaluate: true }
-                                  });
-                                }}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs gap-1 border-amber-500/30 hover:bg-amber-500/10 text-amber-600"
+                                onClick={() => navigate(`/teacher/class/${classId}/evaluate/${s.id}`, {
+                                  state: { student: s, reEvaluate: true }
+                                })}
                               >
-                                Re-Evaluate
+                                <RefreshCw className="h-3 w-3" /> Re-Evaluate
                               </Button>
                             </div>
                           </div>
@@ -538,7 +541,7 @@ const ClassDetail = () => {
               </div>
               
               <div className="pt-4 border-t text-[10px] text-muted-foreground text-center">
-                This is a read-only snapshot. To re-run the AI pipeline, use the 'Re-Evaluate' function in the dashboard.
+                This is a read-only snapshot. Use the Re-Evaluate button on the student row to re-run the AI pipeline.
               </div>
             </div>
           ) : (

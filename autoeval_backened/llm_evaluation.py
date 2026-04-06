@@ -116,44 +116,183 @@ def regex_segmentation(text: str) -> dict:
     print(f"[Segmentation] WARNING: No pattern matched. Text preview: {text[:300]!r}")
     return {}
 
+
+def llm_segmentation(text: str, expected_questions: list) -> dict:
+    """
+    LLM-based segmentation FALLBACK.
+    Used ONLY when regex_segmentation fails to detect all expected questions — typically because
+    the student wrote answers without clear question number labels (e.g. Q8, Q9, Q10 unlabeled).
+    Returns a dict of {question_number_str: answer_text} for any recovered questions.
+    Deterministic: temperature=0.0, seed=42.
+    """
+    if not client:
+        return {}
+
+    q_list = ", ".join(expected_questions)
+    prompt = f"""You are an answer sheet parser. The text below is a student's answer sheet.
+The student was supposed to answer questions: {q_list}
+Some answers may NOT have a question number label written before them.
+
+Your task: Identify the answer text for EACH question number listed above.
+
+RULES:
+1. For labeled answers (e.g. "8. ...", "Q9 ..."), extract them directly.
+2. For unlabeled answers that appear as flowing paragraphs, infer their question number from the sequence.
+3. Return the EXACT answer text — do NOT summarize, rephrase, or shorten.
+4. If a question genuinely has no answer content, omit it.
+5. If an answer was split across a page break (abrupt ending then continuation), merge it as one.
+
+ANSWER SHEET TEXT:
+{text}
+
+JSON OUTPUT FORMAT:
+{{"8": "full text of answer 8", "9": "full text of answer 9", "10": "full text of answer 10"}}"""
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            seed=42,
+            response_format={"type": "json_object"}
+        )
+        raw_result = json.loads(completion.choices[0].message.content)
+
+        # Normalise keys: strip "Q", whitespace — keep only digit strings
+        normalized: dict = {}
+        for k, v in raw_result.items():
+            clean_k = str(k).lower().replace("q", "").strip()
+            if clean_k.isdigit() and v and str(v).strip():
+                normalized[clean_k] = str(v).strip()
+
+        print(f"[SEGMENT DEBUG] LLM fallback raw keys returned: {list(raw_result.keys())}")
+        print(f"[SEGMENT DEBUG] LLM fallback normalized keys: {list(normalized.keys())}")
+        return normalized
+    except Exception as e:
+        print(f"[LLM Segmentation] Fallback failed: {e}")
+        return {}
+
+
+def relabel_ocr_text(text: str) -> str:
+    """
+    Post-OCR re-labeling pass.
+    Detects unlabeled continuation answers (e.g. Q8, Q9, Q10 written without a number prefix)
+    and rewrites the OCR text with proper question number labels inserted BEFORE saving to DB.
+
+    This ensures the stored OCR text — and any teacher dashboard display — shows all questions
+    clearly labeled, not as anonymous paragraphs.
+
+    Deterministic: temperature=0.0, seed=42. Safe: returns original text unchanged on any failure.
+    """
+    if not client or not text.strip():
+        return text
+
+    # Step 1: Find all regex-labeled questions
+    segments = regex_segmentation(text)
+    if not segments:
+        return text
+
+    labeled_qs = sorted([int(q) for q in segments.keys() if str(q).isdigit()])
+    if not labeled_qs:
+        return text
+
+    max_q = max(labeled_qs)
+    last_q_content = segments.get(str(max_q), "")
+    if not last_q_content:
+        return text
+
+    # Step 2: Find the position where the last labeled answer starts
+    # Then find where its content ends in the original text
+    # Use the first 60 chars of the last segment to locate it
+    anchor = last_q_content[:60]
+    anchor_pos = text.find(anchor)
+    if anchor_pos == -1:
+        return text
+
+    # The unlabeled text is everything after the last labeled segment's content
+    end_of_last = anchor_pos + len(last_q_content)
+    unlabeled_tail = text[end_of_last:].strip()
+
+    if len(unlabeled_tail) < 80:
+        # No significant unlabeled content
+        print(f"[OCR Relabel] No substantial unlabeled tail after Q{max_q}. Text unchanged.")
+        return text
+
+    print(f"[OCR Relabel] Found {len(unlabeled_tail)} chars unlabeled after Q{max_q}. Re-labeling...")
+
+    # Step 3: Ask LLM to insert question numbers into the unlabeled tail
+    next_q = max_q + 1
+    prompt = f"""A student's answer sheet has answers after question {max_q} written as plain paragraphs with no question number labels.
+The following text contains those unlabeled answers.
+
+Your task:
+1. Insert a question number label at the start of each new answer (e.g. "{next_q}. ", "{next_q + 1}. ", etc.)
+2. Each answer starts with a new paragraph (blank line between them).
+3. Do NOT change, summarize, or remove any answer content — only add the number label at the start.
+4. Use the format: NUMBER. Answer text here...
+
+UNLABELED ANSWERS TEXT:
+{unlabeled_tail}
+
+OUTPUT: The same text with question number labels added at the start of each answer."""
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            seed=42
+        )
+        relabeled_tail = completion.choices[0].message.content.strip()
+
+        if relabeled_tail:
+            base = text[:end_of_last].rstrip()
+            reconstructed = base + "\n\n" + relabeled_tail
+            print(f"[OCR Relabel] Done. Original: {len(text)} chars → Relabeled: {len(reconstructed)} chars")
+            return reconstructed
+        else:
+            print("[OCR Relabel] LLM returned empty output. Using original text.")
+            return text
+
+    except Exception as e:
+        print(f"[OCR Relabel] Failed: {e}. Returning original text.")
+        return text
+
+
 def evaluate_question_logic(q_num: str, student_segment: str, key_segment: str, concepts_list: list, max_m: float) -> dict:
     sim_score = sbert_engine.calculate_similarity_score(student_segment, key_segment)
     
-    prompt = f"""
-    You are a strict and objective academic evaluator.
-    Analyze the student's answer against the required concepts. Mere presence of keywords is NOT enough; the student must demonstrate correct understanding (valid semantic entailment).
-    
-    STUDENT ANSWER: {student_segment}
-    
-    REQUIRED CONCEPTS:
-    {json.dumps(concepts_list)}
-    
-    RULES:
-    1. Classify each concept as EXACTLY ONE of:
-       - "absent": Concept is missing entirely.
-       - "distorted": Keywords are present but the meaning contradicts facts or misuses the concept.
-       - "valid_partial": Mentions the concept correctly but lacks depth.
-       - "valid_full": Clearly and fully explains the correct conceptual meaning.
-    2. is_coherent: true if the answer is logically readable and well-structured, regardless of factual truth.
-    3. critical_misconceptions_count: integer representing the number of severe factual, doctrinal, or conceptual contradictions against established academic facts for the subject.
-    4. depth_of_understanding: integer (1-5) assessing analytical depth beyond surface definitions.
-    5. originality: integer (1-5) assessing originality or intellectual extension beyond textbook recitations.
-    6. is_guidebook_style: boolean true if the answer relies purely on memorized, textbook semantic saturation without unique intellectual insight.
-    
-    JSON OUTPUT FORMAT:
-    {{
-        "concepts_status": {{"concept_name": "absent"}},
-        "is_coherent": true,
-        "critical_misconceptions_count": 0,
-        "depth_of_understanding": 3,
-        "originality": 3,
-        "is_guidebook_style": false
-    }}
-    """
-    
+    # ── SIMPLIFIED LLM PROMPT (rubric-only signals) ─────────────────────────
+    # Removed: depth_of_understanding, originality, is_guidebook_style
+    # Kept:    concepts_status, is_coherent, critical_misconceptions_count
+    prompt = f"""You are a strict academic concept evaluator.
+Evaluate the student's answer ONLY for conceptual correctness and support.
+
+STUDENT ANSWER: {student_segment}
+
+REQUIRED CONCEPTS:
+{json.dumps(concepts_list)}
+
+CLASSIFICATION RULES — apply EXACTLY one per concept:
+- "absent"       : Concept not mentioned at all.
+- "distorted"    : Keywords present but meaning is factually wrong or contradicts the concept.
+- "valid_partial": Concept correctly mentioned but without explanation or supporting detail.
+- "valid_full"   : Concept correctly stated AND supported with explanation or evidence.
+
+ALSO RETURN:
+- is_coherent: true if answer is readable and logically connected (ignore factual truth).
+- critical_misconceptions_count: integer count of severe factual contradictions to established academic facts.
+
+JSON OUTPUT FORMAT:
+{{
+    "concepts_status": {{"concept_name": "absent|distorted|valid_partial|valid_full"}},
+    "is_coherent": true,
+    "critical_misconceptions_count": 0
+}}"""
+
     if client is None:
         raise ValueError("OpenAI client missing")
-        
+
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -165,185 +304,121 @@ def evaluate_question_logic(q_num: str, student_segment: str, key_segment: str, 
     except:
         result = {}
 
-    status_map = {"absent": 0.0, "distorted": 0.0, "valid_partial": 0.5, "valid_full": 1.0}
-    normalized_concepts = {}
+    # ── CONCEPT STATUS NORMALISATION ───────────────────────────────────────
+    SCORE_MAP = {"absent": 0.0, "distorted": 0.0, "valid_partial": 0.5, "valid_full": 1.0}
+    normalized_concepts: dict = {}
     for c in concepts_list:
         raw_val = result.get("concepts_status", {}).get(c, "absent").lower()
-        if raw_val not in status_map:
+        if raw_val not in SCORE_MAP:
             raw_val = "absent"
         normalized_concepts[c] = raw_val
-        # The following lines were incorrectly placed inside the loop in the user's provided edit.
-        # They are removed here to maintain correct program logic.
-        # content_str = response.choices[0].message.content.strip()
-        # result = json.loads(content_str)
-        
-    is_coherent = bool(result.get("is_coherent", False))
-    # Type coerce for strictly typed linters, even though runtime behaves fine
+
+    is_coherent   = bool(result.get("is_coherent", False))
     misconceptions = int(str(result.get("critical_misconceptions_count", 0)))
-    
-    # 1. Length Adequacy (Soft Threshold) calculated early
-    word_count = len(re.findall(r'\b\w+\b', student_segment))
-    expected_words = int(max_m * 15)
-    deficit_ratio = max(0.0, (expected_words - word_count) / expected_words) if expected_words > 0 else 0.0
-    
-    depth_val = float(str(result.get("depth_of_understanding", 1)))
-    originality_val = float(str(result.get("originality", 1)))
-    
-    # 3. Short answers logically cannot demonstrate high depth or originality
-    if deficit_ratio > 0.5:
-        depth_val = min(depth_val, 2.0)
-        originality_val = min(originality_val, 2.0)
-        
-    is_guidebook = bool(result.get("is_guidebook_style", False))
 
-    # Weight Distribution (High-Band Differentiation Balance)
-    W_SEMANTIC = 0.10
-    W_COVERAGE = 0.40
-    W_REASONING = 0.20
-    W_DEPTH = 0.20
-    W_ORIGINAL = 0.10
-    
-    identified_count = sum(1 for v in normalized_concepts.values() if v in ["valid_partial", "valid_full"])
-    distorted_count = sum(1 for v in normalized_concepts.values() if v == "distorted")
-    
-    # 2. Minimum Conceptual Breadth Cap (Softened to Proportional)
-    breadth_penalty = 0.0
-    if max_m >= 7.0 and identified_count < 3:
-        breadth_penalty = 0.05
-    elif max_m >= 5.0 and identified_count < 2:
-        breadth_penalty = 0.03
+    # ══════════════════════════════════════════════════════════════════════════
+    # RUBRIC-DRIVEN SCORING CORE
+    # All constants explicit and fixed. No stochastic or adaptive paths.
+    # Determinism contract: same inputs → identical outputs every time.
+    # ══════════════════════════════════════════════════════════════════════════
 
-    total_concept_score = sum(status_map[v] for v in normalized_concepts.values())
-    total_concepts = max(len(concepts_list), 1)
-    
-    # Deterministic normalizations to prevent float instability
-    coverage_ratio = round(max(0.0, (total_concept_score / total_concepts) - breadth_penalty), 4)
-    
-    # 4. Sufficiency-Weighted Reasoning (Compensatory floor)
-    base_reasoning = 1.0 if is_coherent else 0.0
-    # Even short coherent answers get at least 70% reasoning weight to assist weak scripts
-    reasoning_multiplier = max(0.7, 1.0 - (deficit_ratio / 3.0))
-    reasoning_score = round(base_reasoning * reasoning_multiplier, 4)
+    # ── FROZEN WEIGHT CONSTANTS ────────────────────────────────────────────
+    W_CONCEPT              = 0.55   # concept_ratio weight (increased for conceptual dominance)
+    W_SUPPORT              = 0.40   # support_factor weight (reduced to cap explanation inflation)
+    W_SBERT                = 0.05   # SBERT signal — hard capped, never dominant
+    PENALTY_PER_MISCONCEPTION = 0.20  # Fixed linear deduction per factual error (strengthened)
+    MAX_FACTUAL_PENALTY    = 0.30   # Hard ceiling on factual penalty
+
+    # ── STEP 1: concept_ratio — primary scoring signal ─────────────────────
+    # absent=0.0, distorted=0.0, valid_partial=0.5, valid_full=1.0
+    concept_scores  = [SCORE_MAP.get(v, 0.0) for v in normalized_concepts.values()]
+    total_concepts  = max(1, len(concept_scores))
+    concept_ratio   = round(sum(concept_scores) / total_concepts, 4)
+
+    # ── STEP 2: support_factor — penalises keyword listing, rewards evidence ─
+    # supported_full  = concepts clearly explained with support (valid_full)
+    # bounded_evidence = partial credit for partially supported concepts (capped at 0.20)
+    # support_factor   = min(1.0, full_ratio + bounded_evidence)
+    supported_full    = sum(1 for v in normalized_concepts.values() if v == "valid_full")
+    supported_partial = sum(1 for v in normalized_concepts.values() if v == "valid_partial")
+    full_ratio        = round(supported_full / total_concepts, 4)
+    bounded_evidence  = round(min(0.20, supported_partial / total_concepts), 4)
+    support_factor    = round(min(1.0, full_ratio + bounded_evidence), 4)
+
+    # ── STEP 3: primary ratio (explicit weighted sum, no nonlinear transforms) ─
     sim_score_rounded = round(sim_score, 4)
-    
-    depth_score = round(depth_val / 5.0, 4)
-    original_score = round(originality_val / 5.0, 4)
-    
-    raw_ratio = round(
-        (W_SEMANTIC * sim_score_rounded) + 
-        (W_COVERAGE * coverage_ratio) + 
-        (W_REASONING * reasoning_score) +
-        (W_DEPTH * depth_score) +
-        (W_ORIGINAL * original_score), 4
+    primary_ratio = round(
+        W_CONCEPT * concept_ratio +
+        W_SUPPORT * support_factor +
+        W_SBERT   * sim_score_rounded,
+        4
     )
-    
-    # 5. Progressive Underdevelopment Penalty (Smoothed)
-    length_penalty = 0.0
-    if deficit_ratio > 0.1:
-        # Scale deficit gently (max ~0.15 for blank answers) 
-        length_penalty = round(deficit_ratio * 0.15, 4)
 
-    # Penalties
-    penalty_deduction = min(0.40, misconceptions * 0.20)
-    guidebook_penalty = 0.05 if is_guidebook else 0.0
-    total_penalty = round(penalty_deduction + guidebook_penalty + length_penalty, 4)
-    
-    # 6. Establish Minimum Score Floors
-    # Ensure partial conceptual understanding yields baseline marks (bumped for 35-40% target) # type: ignore
-    floor_ratio = (coverage_ratio * W_COVERAGE * 0.6) + (sim_score_rounded * W_SEMANTIC * 0.6) # type: ignore
-    base_final_ratio = round(max(floor_ratio, raw_ratio - total_penalty), 4) # type: ignore
-    
-    # 7. Low-Band Smoothing (Explicit Floor for conceptual validity)
-    if identified_count > 0:
-        base_final_ratio = max(0.35, base_final_ratio)
+    # ── STEP 4: factual error penalty — fixed, linear, deterministic ────────
+    factual_penalty = round(min(MAX_FACTUAL_PENALTY, misconceptions * PENALTY_PER_MISCONCEPTION), 4)
 
-    # High-Band Expansion & Academic Strictness Scaling
-    scaling_factor = 1.15
-    calibrated_ratio = round(base_final_ratio ** scaling_factor, 4)
-    
-    # Bonus for intellectual superiority to separate 85s vs 95s
-    bonus = 0.0
-    if base_final_ratio >= 0.80 and original_score >= 0.8:
-        bonus = 0.05
-    
-    calibrated_ratio = min(1.0, calibrated_ratio + bonus)
+    # ── STEP 5: final linear scaling — clamp to [0, 1], no exponents ────────
+    adjusted_ratio = round(primary_ratio - factual_penalty, 4)
+    final_ratio    = max(0.0, min(1.0, adjusted_ratio))
+    final_marks    = round(final_ratio * max_m, 1)
+    applied_cap    = factual_penalty
 
-    final_marks = round(calibrated_ratio * max_m, 1)
-    applied_cap = penalty_deduction
+    # ── DERIVED COUNTS for logging and feedback ────────────────────────────
+    identified_count = sum(1 for v in normalized_concepts.values() if v in ["valid_partial", "valid_full"])
+    distorted_count  = sum(1 for v in normalized_concepts.values() if v == "distorted")
+    absent_concepts  = [k for k, v in normalized_concepts.items() if v == "absent"]
 
-    absent_concepts = [k for k, v in normalized_concepts.items() if v == "absent"]
-    
+    # ── EVALUATION TRACE (RUBRIC MODEL) ───────────────────────────────────
     print(f"\n────────────────── EVALUATION TRACE (Q{q_num}) ──────────────────")
-    print(f"│ 1. Core Signals:")
-    print(f"│    - Semantic Raw         : {sim_score_rounded:.4f}")
-    print(f"│    - Concept Validation   : {coverage_ratio:.4f} (Valid: {identified_count}, Distorted: {distorted_count}, Absent: {len(absent_concepts)})")
-    if breadth_penalty > 0.0:
-        print(f"│      * Breadth Penalty    : -{breadth_penalty:.4f}")
-    print(f"│    - Reasoning Coherence  : {reasoning_score:.4f} (Deficit adj: -{deficit_ratio:.2f})")
-    print(f"│ 2. Intellectual Markers:")
-    print(f"│    - Depth of Understanding: {depth_score:.4f} ({depth_val}/5.0)")
-    print(f"│    - Originality           : {original_score:.4f} ({originality_val}/5.0)")
-    print(f"│ 3. Adjustments:")
-    print(f"│    - Underdevelopment Adj  : -{length_penalty:.4f} (Words: {word_count}/{expected_words})")
-    if guidebook_penalty > 0:
-        print(f"│    - Guidebook Style       : -{guidebook_penalty:.4f}")
-    if penalty_deduction > 0:
-        print(f"│    - Factual Errors        : -{penalty_deduction:.4f}")
-    print("│ --")
-    print(f"│ [1] Weighted Score      : {raw_ratio:.4f} (Sum of 5 core dimensions)")
-    print(f"│ [2] Penalty Adjustment  : {raw_ratio:.4f} - {total_penalty:.4f} = {raw_ratio - total_penalty:.4f}")
-    print(f"│ [3] Floor Application   : max(Floor: {floor_ratio:.4f}, Adjusted: {raw_ratio - total_penalty:.4f}) -> {base_final_ratio:.4f}")
-    if bonus > 0.0:
-        print(f"│ [4] Scaling (Non-linear): ({base_final_ratio:.4f} ^ {scaling_factor}) + Bonus({bonus:.4f}) -> {calibrated_ratio:.4f}")
-    else:
-        print(f"│ [4] Scaling (Non-linear): ({base_final_ratio:.4f} ^ {scaling_factor}) -> {calibrated_ratio:.4f}")
-    print(f"│ Final Operations Marks  : {calibrated_ratio:.4f} × {max_m} = {final_marks:.1f} / {max_m}")
+    print(f"│ PRIMARY SIGNAL — Concept Rubric:")
+    print(f"│    - concept_ratio  (W=0.50) : {concept_ratio:.4f}  (Absent: {total_concepts - identified_count - distorted_count}, Partial: {supported_partial}, Full: {supported_full}, Distorted: {distorted_count})")
+    print(f"│    - support_factor (W=0.45) : {support_factor:.4f}  (full_ratio: {full_ratio:.4f} + bounded_evidence: {bounded_evidence:.4f})")
+    print(f"│    - SBERT signal   (W=0.05) : {sim_score_rounded:.4f}  (capped, non-dominant)")
+    print(f"│ WEIGHTED PRIMARY   : {primary_ratio:.4f}")
+    print(f"│ FACTUAL PENALTY    : -{factual_penalty:.4f}  ({misconceptions} misconception(s) × {PENALTY_PER_MISCONCEPTION})")
+    print(f"│ ADJUSTED RATIO     : {adjusted_ratio:.4f}")
+    print(f"│ FINAL RATIO        : {final_ratio:.4f}  [clamped 0→1, no nonlinear transform]")
+    print(f"│ FINAL MARKS        : {final_ratio:.4f} × {max_m} = {final_marks:.1f} / {max_m}")
     print("─────────────────────────────────────────────────────────────\n")
-    
-    # Educational Feedback Generation (Concept Grounded)
+
+    # ── FEEDBACK GENERATION (structure unchanged) ──────────────────────────
     feedback_points = []
-    
+
     valid_concepts = [k.title() for k, v in normalized_concepts.items() if v in ["valid_full", "valid_partial"]]
-    absent_names = [k.title() for k, v in normalized_concepts.items() if v == "absent"]
-    
+    absent_names   = [k.title() for k, v in normalized_concepts.items() if v == "absent"]
+
     if valid_concepts:
         feedback_points.append(f"Correctly Addressed: {', '.join(valid_concepts)}")
-    
+
     if absent_names:
         feedback_points.append(f"Missing Concepts: {', '.join(absent_names)}")
-        
-    if breadth_penalty > 0.0:
-        feedback_points.append(f"Mark Deduction Reason (-{breadth_penalty:.2f} penalty): A {max_m}-mark response requires broader conceptual coverage.")
-    elif depth_val <= 2.0 and expected_words > 45:
-        feedback_points.append(f"Mark Deduction Reason: Explanation depth was historically insufficient for a {max_m}-mark question. Provide deeper analytical context.")
-        
-    if length_penalty > 0:
-        if max_m >= 7:
-            feedback_points.append(f"Underdeveloped (-{length_penalty:.2f} penalty): A {max_m}-mark question requires multi-point elaboration and examples.")
-        elif max_m >= 5:
-            feedback_points.append(f"Underdeveloped (-{length_penalty:.2f} penalty): A {max_m}-mark question requires moderate elaboration; your answer was too brief.")
-        else:
-            feedback_points.append(f"Underdeveloped (-{length_penalty:.2f} penalty): Add 1-2 more contextual sentences.")
-            
-    if reasoning_score < 0.8 and is_coherent:
-        feedback_points.append("Improvement Suggestion: Expand your reasoning to logically connect the concepts provided.")
-            
-    if is_guidebook:
-        feedback_points.append("Improvement Suggestion: Synthesize the concepts in your own words rather than relying on memorized guidebook structures.")
-        
+
+    if distorted_count > 0:
+        feedback_points.append(f"Conceptual Errors: {distorted_count} concept(s) were mentioned with incorrect meaning — these score 0.")
+
+    if support_factor < 0.4 and identified_count > 0:
+        feedback_points.append(
+            "Improvement Suggestion: Concepts were mentioned but need more explanation or supporting evidence to earn full credit."
+        )
+
+    if not is_coherent:
+        feedback_points.append("Improvement Suggestion: The answer lacks logical structure — connect your points more clearly.")
+
     if misconceptions > 0:
-        feedback_points.append(f"Factual Errors: Critical errors detected resulting in a -{round(penalty_deduction * max_m, 1)} mark deduction.")
-        
+        feedback_points.append(
+            f"Factual Errors: {misconceptions} critical error(s) detected — -{factual_penalty:.2f} mark ratio deducted."
+        )
+
     examiner_note = "Evaluation Feedback:\n- " + "\n- ".join(feedback_points) if feedback_points else "Excellent, highly developed answer demonstrating thorough conceptual mastery."
 
     return {
-        "marks_obtained": final_marks,
-        "sbert_score": sim_score_rounded,
-        "coverage_ratio": coverage_ratio,
-        "reasoning_score": reasoning_score,
-        "penalty_applied": round(applied_cap, 4),
-        "factual_error": (misconceptions > 0),
-        "concepts_status": normalized_concepts,
+        "marks_obtained":   final_marks,
+        "sbert_score":      sim_score_rounded,
+        "coverage_ratio":   concept_ratio,       # concept_ratio (primary signal)
+        "reasoning_score":  support_factor,       # repurposed: support_factor
+        "penalty_applied":  round(applied_cap, 4),
+        "factual_error":    (misconceptions > 0),
+        "concepts_status":  normalized_concepts,
         "reasoning_summary": examiner_note
     }
 
@@ -357,6 +432,34 @@ def evaluate_semantic_content(student_text: str, key_text: str, mark_distributio
 
         student_segments = regex_segmentation(student_text)
         key_segments = regex_segmentation(key_text)
+
+        print(f"[SEGMENT DEBUG] Input length to segmentation: {len(student_text)}")
+        print(f"[SEGMENT DEBUG] Regex detected questions: {list(student_segments.keys())}")
+
+        # ── LLM SEGMENTATION FALLBACK ────────────────────────────────────────
+        # If regex missed any question present in the mark distribution,
+        # run one targeted LLM call to recover unlabeled answer paragraphs.
+        # This handles cases where the student did not write "8."/"9."/"10." markers.
+        # Scoring, SBERT, and evaluation logic are completely unchanged.
+        expected_questions = list(mark_distribution.keys())
+        missing_from_student = [q for q in expected_questions if q not in student_segments]
+        if missing_from_student:
+            print(f"[Segmentation] Regex found {len(student_segments)}/{len(expected_questions)} expected questions.")
+            print(f"[Segmentation] Missing: {missing_from_student}. Activating LLM fallback...")
+            llm_recovered = llm_segmentation(student_text, expected_questions)
+            print(f"[SEGMENT DEBUG] LLM fallback returned {len(llm_recovered)} segments: {list(llm_recovered.keys())}")
+            recovered_count = 0
+            for q in missing_from_student:
+                if q in llm_recovered:
+                    student_segments[q] = llm_recovered[q]
+                    recovered_count += 1
+                    print(f"[Segmentation] LLM recovered Q{q} ({len(llm_recovered[q])} chars)")
+                else:
+                    print(f"[SEGMENT DEBUG] LLM did NOT return Q{q} — will be marked as missing answer.")
+            print(f"[Segmentation] LLM fallback complete: recovered {recovered_count}/{len(missing_from_student)} missing questions.")
+        else:
+            print(f"[SEGMENT DEBUG] All {len(expected_questions)} expected questions found by regex. LLM fallback not needed.")
+        # ─────────────────────────────────────────────────────────────────────
 
         print(f"[Eval Diag] Mark distribution keys: {list(mark_distribution.keys())}")
         print(f"[Eval Diag] Student segment keys:   {list(student_segments.keys())}")

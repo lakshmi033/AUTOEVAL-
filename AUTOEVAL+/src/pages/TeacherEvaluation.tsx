@@ -95,7 +95,7 @@ const TeacherEvaluation = () => {
       setAnswerSheetId(data.answer_sheet_id);
       toast({
         title: 'Stored OCR Loaded',
-        description: `Loaded sheet "${data.filename}" (ID: ${data.answer_sheet_id}) from database. No OCR credit used.`,
+        description: `Loaded stored answer sheet "${data.filename}" successfully.`,
       });
     } catch (error: any) {
       toast({
@@ -117,7 +117,7 @@ const TeacherEvaluation = () => {
       setStoredKeyFilename(data.filename);
       toast({
         title: 'Stored Answer Key Loaded',
-        description: `Using key "${data.filename}" (ID: ${data.answer_key_id}) from database. No re-extraction needed.`,
+        description: `Answer key "${data.filename}" loaded from database.`,
       });
     } catch (error: any) {
       toast({
@@ -448,7 +448,7 @@ const TeacherEvaluation = () => {
                         disabled={isProcessing}
                         className="w-full text-xs"
                       >
-                        ↩ Load Stored OCR (No Credit Used)
+                        ↩ Load Stored OCR
                       </Button>
                     </div>
                   )}
@@ -495,7 +495,7 @@ const TeacherEvaluation = () => {
                         disabled={isProcessing}
                         className="w-full text-xs"
                       >
-                        ↩ Use Stored Answer Key (No Credit Used)
+                        ↩ Use Stored Answer Key
                       </Button>
                     </div>
                   ) : storedAnswerKeyId ? (

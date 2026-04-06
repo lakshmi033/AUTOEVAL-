@@ -3,5 +3,12 @@
     "python.analysis.extraPaths": [
         "${workspaceFolder}"
     ],
-    "python.languageServer": "Pylance"
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "off",
+    "pyre.binaryPath": "",
+    "pyre.enableLanguageServer": false,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingModuleSource": "none"
+    }
 }

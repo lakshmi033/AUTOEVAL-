@@ -1,0 +1,125 @@
+======================================================================
+AUTOEVAL+ DIAGNOSTIC REPORT
+======================================================================
+
+
+--- ANSWER KEYS (latest 5) ---
+
+  Key ID 5 | File: CIVIC.pdf | Subject: None
+  key_text length: 17320 chars
+  [STRUCTURED] mark_distribution keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  [STRUCTURED] Total questions: 10
+  [STRUCTURED] concepts keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+
+  Key ID 4 | File: Civics_Answer_Key.pdf | Subject: None
+  key_text length: 610 chars
+  [STRUCTURED] mark_distribution keys: ['1', '7']
+  [STRUCTURED] Total questions: 2
+  [STRUCTURED] concepts keys: ['1', '7']
+
+  Key ID 3 | File: CIVIC.pdf | Subject: None
+  key_text length: 17363 chars
+  [STRUCTURED] mark_distribution keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  [STRUCTURED] Total questions: 10
+  [STRUCTURED] concepts keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+
+  Key ID 2 | File: CIVIC.pdf | Subject: None
+  key_text length: 17327 chars
+  [STRUCTURED] mark_distribution keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  [STRUCTURED] Total questions: 10
+  [STRUCTURED] concepts keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+
+  Key ID 1 | File: CIVIC.pdf | Subject: Civics
+  key_text length: 10954 chars
+  [STRUCTURED] mark_distribution keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  [STRUCTURED] Total questions: 10
+  [STRUCTURED] concepts keys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+
+
+--- ANSWER SHEETS (latest 5) ---
+
+  Sheet ID 21 | Student ID 2 | File: History 01.pdf
+  OCR text length: 3304 chars
+  First 300 chars: 'Date: 25/03/2026  \nName: James Smith  \nClass: 12 A  \nRoll no: 01  \n\nSubject: History  \n\nAnswers  \n1. History is the study of past events related to human life and societies. It helps us understand how people lived in earlier times and how societies developed over time. Studying history helps us lear'
+  Last 400 chars: "anz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+  Regex segmentation result: ['1', '2', '3', '4', '5', '6', '7']
+  Q8 explicit marker in OCR: YES
+  Q9 explicit marker in OCR: NO - content unlabeled
+  Q10 explicit marker in OCR: NO - content unlabeled
+  Last 1000 chars: "rinciples of truth (satya) and non-violence (Ahimsa) and used peaceful methods to oppose British rule. He led the non-cooperation movement in 1920, encouraging people to boycott British goods and institutions. Gandhi also started the Civil Disobedience Movement in 1930.  \n\nThe First World War (1914-1918) was a major conflict involving many powerful countries. One cause was militarism  \n\nwhere countries increased their arms and weapons. Another cause was the formation of alliances such as the Triple Alliance and Triple Entente. The immediate cause of the war was the assassination of Archduke Franz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+
+  Sheet ID 20 | Student ID 2 | File: History 01.pdf
+  OCR text length: 3325 chars
+  First 300 chars: 'Date: 25/03/2026  \nName: James Smith  \nClass: 12 A  \nRoll no: 01  \n\nSubject: History  \n\nAnswers  \n1. History is the study of past events related to human life and societies. It helps us understand how people lived in earlier times and how societies developed over time. Studying history helps us lear'
+  Last 400 chars: "anz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+  Regex segmentation result: ['1', '2', '3', '4', '5', '6', '7']
+  Q8 explicit marker in OCR: YES
+  Q9 explicit marker in OCR: NO - content unlabeled
+  Q10 explicit marker in OCR: NO - content unlabeled
+  Last 1000 chars: "inciples of truth (satya) and non-violence (Ahimsa) and used peaceful methods to oppose British rule. He led the non-cooperation movement in 1920, encouraging people to boycott British goods and institutions. Gandhi also started the Civil Disobedience Movement in 1930.  \n\nThe First World War (1914-1918) was a major conflict involving many powerful countries. One cause was militarism.  \n\nwhere countries increased their arms and weapons. Another cause was the formation of alliances such as the Triple Alliance and Triple Entente. The immediate cause of the war was the assassination of Archduke Franz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+
+  Sheet ID 19 | Student ID 2 | File: History 01.pdf
+  OCR text length: 3324 chars
+  First 300 chars: 'Date: 25/03/2026  \nName: James Smith  \nClass: 12 A  \nRoll no: 01  \n\nSubject: History  \n\nAnswers  \n1. History is the study of past events related to human life and societies. It helps us understand how people lived in earlier times and how societies developed over time. Studying history helps us lear'
+  Last 400 chars: "anz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+  Regex segmentation result: ['1', '2', '3', '4', '5', '6', '7']
+  Q8 explicit marker in OCR: YES
+  Q9 explicit marker in OCR: NO - content unlabeled
+  Q10 explicit marker in OCR: NO - content unlabeled
+  Last 1000 chars: "rinciples of truth (satya) and non-violence (Ahimsa) and used peaceful methods to oppose British rule. He led the non-cooperation movement in 1920, encouraging people to boycott British goods and institutions. Gandhi also started the Civil Disobedience Movement in 1930.  \n\nThe First World War (1914-1918) was a major conflict involving many powerful countries. One cause was militarism  \n\nwhere countries increased their arms and weapons. Another cause was the formation of alliances such as the Triple Alliance and Triple Entente. The immediate cause of the war was the assassination of Archduke Franz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+
+  Sheet ID 18 | Student ID 2 | File: History 01.pdf
+  OCR text length: 3313 chars
+  First 300 chars: 'Date: 25/03/2026  \nName: James Smith  \nClass: 12 A  \nRoll no: 01  \n\nSubject: History  \n\nAnswers  \n1. History is the study of past events related to human life and societies. It helps us understand how people lived in earlier times and how societies developed over time. Studying history helps us lear'
+  Last 400 chars: "anz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+  Regex segmentation result: ['1', '2', '3', '4', '5', '6', '7']
+  Q8 explicit marker in OCR: YES
+  Q9 explicit marker in OCR: NO - content unlabeled
+  Q10 explicit marker in OCR: NO - content unlabeled
+  Last 1000 chars: "rinciples of truth (satya) and non-violence (Ahimsa) and used peaceful methods to oppose British rule. He led the non-cooperation movement in 1920, encouraging people to boycott British goods and institutions. Gandhi also started the Civil Disobedience Movement in 1930.  \n\nThe First World War (1914-1918) was a major conflict involving many powerful countries. One cause was militarism  \n\nwhere countries increased their arms and weapons. Another cause was the formation of alliances such as the Triple Alliance and Triple Entente. The immediate cause of the war was the assassination of Archduke Franz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+
+  Sheet ID 17 | Student ID 2 | File: History 01.pdf
+  OCR text length: 3314 chars
+  First 300 chars: 'Date: 25/03/2026  \nName: James Smith  \nClass: 12 A  \nRoll no: 01  \n\nSubject: History  \n\nAnswers  \n1. History is the study of past events related to human life and societies. It helps us understand how people lived in earlier times and how societies developed over time. Studying history helps us lear'
+  Last 400 chars: "anz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+  Regex segmentation result: ['1', '2', '3', '4', '5', '6', '7']
+  Q8 explicit marker in OCR: YES
+  Q9 explicit marker in OCR: NO - content unlabeled
+  Q10 explicit marker in OCR: NO - content unlabeled
+  Last 1000 chars: "inciples of truth (satya) and non-violence (Ahimsa) and used peaceful methods to oppose British rule. He led the non-cooperation movement in 1920, encouraging people to boycott British goods and institutions. Gandhi also started the Civil Disobedience Movement in 1930.  \n\nThe First World War (1914-1918) was a major conflict involving many powerful countries. One cause was militarism.  \n\nwhere countries increased their arms and weapons. Another cause was the formation of alliances such as the Triple Alliance and Triple Entente. The immediate cause of the war was the assassination of Archduke Franz Ferdinand in 1914.  \n\nIndia's independence in 1947 was the result of a long struggle against British colonial rule. One important event was the non-cooperation movement in 1920. Another major event was the Civil Disobedience Movement in 1930, which began with the Salt March to Dandi protesting the salt tax. These movements helped increase national awareness and resistance against British rule."
+
+
+--- EVALUATIONS (latest 5) ---
+
+  Eval ID 24 | Sheet ID 15
+  Question keys evaluated: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  Total questions evaluated: 10
+  Could not parse: 'Evaluation' object has no attribute 'total_marks'
+
+  Eval ID 23 | Sheet ID 13
+  Question keys evaluated: ['1', '7']
+  Total questions evaluated: 2
+  Could not parse: 'Evaluation' object has no attribute 'total_marks'
+
+  Eval ID 22 | Sheet ID 12
+  Question keys evaluated: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  Total questions evaluated: 10
+  Could not parse: 'Evaluation' object has no attribute 'total_marks'
+
+  Eval ID 21 | Sheet ID 11
+  Question keys evaluated: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  Total questions evaluated: 10
+  Could not parse: 'Evaluation' object has no attribute 'total_marks'
+
+  Eval ID 20 | Sheet ID 11
+  Question keys evaluated: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  Total questions evaluated: 10
+  Could not parse: 'Evaluation' object has no attribute 'total_marks'
+
+
+--- ROOT CAUSE DIAGNOSIS ---
+  Answer key has 10 questions. mark_distribution is complete.
+
+======================================================================
+END OF DIAGNOSTIC REPORT
+======================================================================

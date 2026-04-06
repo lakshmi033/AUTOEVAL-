@@ -42,11 +42,8 @@ def load_sbert_model():
     if _SBERT_MODEL is None:
         try:
             print("[SBERT Engine] Loading Transformer Model (all-MiniLM-L6-v2) | Revision: e4ce98d")
-            # We lock the revision to ensure identical embeddings across installations
-            _SBERT_MODEL = SentenceTransformer(
-                'sentence-transformers/all-MiniLM-L6-v2',
-                revision='e4ce98d8c7e3a309b68f2e34f32ae629a9203002'
-            )
+            # We remove the revision lock here to ensure it can load in completely offline setups.
+            _SBERT_MODEL = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
             print("[SBERT Engine] Model Locked & Loaded Successfully.")
         except Exception as e:
             print(f"ERROR: Failed to load SBERT Model: {e}")

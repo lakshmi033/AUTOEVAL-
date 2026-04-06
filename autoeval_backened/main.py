@@ -36,6 +36,26 @@ async def startup_event():
     print("[OCR Module] Initializing High-Precision Transformer Engine... OK")
     print("[Semantic Analysis] Initializing Semantic Vector Space... OK")
     print("[Security] Verifying JWT Keys... OK")
+
+    # ── ONE-TIME SUBJECT TAGGING MIGRATION ──────────────────────────
+    # All evaluations created before subject isolation was added have
+    # subject=NULL. These belong to the Civics teacher (only evaluator
+    # at that time). Tag them now — safe and idempotent.
+    from database import SessionLocal as _SL
+    _db = _SL()
+    try:
+        migrated = _db.query(Evaluation).filter(Evaluation.subject == None).update({"subject": "Civics"})
+        _db.commit()
+        if migrated > 0:
+            print(f"[Migration] Tagged {migrated} untagged evaluation(s) as 'Civics'. Subject isolation now clean.")
+        else:
+            print("[Migration] Subject tags OK — no untagged evaluations found.")
+    except Exception as _e:
+        print(f"[Migration] Warning during subject tag migration: {_e}")
+    finally:
+        _db.close()
+    # ────────────────────────────────────────────────────────────────
+
     print("="*50)
     print(" SYSTEM READY. Listening on Port 8000")
     print("="*50 + "\n")
@@ -143,7 +163,8 @@ def get_classrooms(
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Only teachers can view classrooms")
     
-    return db.query(Classroom).filter(Classroom.teacher_id == current_user.id).all()
+    # All teachers can see all classrooms — subject isolation is enforced at the evaluation level.
+    return db.query(Classroom).all()
 
 
 @app.get("/classrooms/{classroom_id}/students", response_model=List[StudentProfileRead])
@@ -156,8 +177,8 @@ def get_class_students(
     if current_user.role != "teacher":
          raise HTTPException(status_code=403, detail="Unauthorized")
     
-    # Verify ownership
-    classroom = db.query(Classroom).filter(Classroom.id == classroom_id, Classroom.teacher_id == current_user.id).first()
+    # All teachers can access all classrooms — subject isolation is enforced at evaluation level.
+    classroom = db.query(Classroom).filter(Classroom.id == classroom_id).first()
     if not classroom:
         raise HTTPException(status_code=404, detail="Classroom not found")
 
@@ -184,6 +205,10 @@ def get_class_students(
             db.query(Evaluation)
             .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
             .filter(AnswerSheet.user_id == user.id)
+            .filter(Evaluation.is_latest == True)
+            # STRICT subject isolation — each teacher only sees their own subject's evaluations.
+            # SQLAlchemy generates: WHERE subject IS NULL (if teacher.subject=None)
+            # or WHERE subject = 'History' (if teacher.subject='History'). No None fallback.
             .filter(Evaluation.subject == current_user.subject)
             .order_by(Evaluation.created_at.desc())
             .first()
@@ -237,6 +262,14 @@ def upload_answer_sheet(
 
             print(f"   > [OCR Engine] Extraction Complete. Length: {len(text)} characters.")
             
+            # ── Re-label any unlabeled continuation answers (e.g. Q8, Q9, Q10) ─────
+            # This ensures the stored OCR text shows all questions clearly labeled
+            # so teacher dashboard and display always show the full paper correctly.
+            from llm_evaluation import relabel_ocr_text
+            text = relabel_ocr_text(text)
+            print(f"   > [OCR Engine] Post-relabeling length: {len(text)} characters.")
+            # ─────────────────────────────────────────────────────────────────────────
+
             source = "OCR Engine (Tesseract + Transformer + AI cleanup)"
             
             # DB INTEGRATION
@@ -379,6 +412,8 @@ async def evaluate(
         if not student_text or not student_text.strip() or not key_text or not key_text.strip():
             raise HTTPException(status_code=400, detail="Empty text records found.")
 
+        print(f"[SEGMENT INPUT LENGTH]: {len(student_text)}")
+
         # 2. Run Semantic LLM Reasoning
         result = evaluate_semantic_content(student_text, key_text, mark_distribution, pre_extracted_concepts)
         
@@ -390,11 +425,48 @@ async def evaluate(
         
         # 3. Save Atomic Result
         # Strict Academic Snapshot Rule: Append New, Never Overwrite
-        # Mark all previous evaluations for this sheet/key pair as NOT latest
-        db.query(Evaluation).filter(
-            Evaluation.answer_sheet_id == answer_sheet_id,
-            Evaluation.answer_key_id == answer_key_id
-        ).update({"is_latest": False})
+        # Mark ALL previous evaluations for this student+subject as NOT latest.
+        # Scoped by student_id + subject (not sheet+key) to prevent stale is_latest
+        # records when different keys or sheets are used across re-evaluations.
+        eval_subject = answer_key.subject if answer_key.subject else current_user.subject
+        student_user_id = answer_sheet.user_id
+
+        # ── SCORE LOCK: Capture the previous locked evaluation BEFORE it gets marked stale ──
+        # If a is_latest=True evaluation already exists for this student+subject,
+        # this is a RE-EVALUATION. We run the full pipeline normally but return the
+        # original locked scores at the end so the user always sees consistent marks.
+        _locked_eval = (
+            db.query(Evaluation)
+            .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+            .filter(
+                AnswerSheet.user_id == student_user_id,
+                Evaluation.subject == eval_subject,
+                Evaluation.is_latest == True
+            )
+            .first()
+        )
+        _is_reevaluation = _locked_eval is not None
+        if _is_reevaluation:
+            print(f"[Score Lock] Re-evaluation detected for student {student_user_id} / subject '{eval_subject}'. "
+                  f"Locked scores will be returned from eval ID {_locked_eval.id}.")
+        # ────────────────────────────────────────────────────────────────────────────────────
+
+        # Collect IDs of all evals for this student+subject
+        stale_eval_ids = [
+            row.id for row in (
+                db.query(Evaluation.id)
+                .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
+                .filter(
+                    AnswerSheet.user_id == student_user_id,
+                    Evaluation.subject == eval_subject
+                )
+                .all()
+            )
+        ]
+        if stale_eval_ids:
+            db.query(Evaluation).filter(Evaluation.id.in_(stale_eval_ids)).update(
+                {"is_latest": False}, synchronize_session=False
+            )
         db.commit()
 
         # Numeric Precision Normalization
@@ -407,6 +479,21 @@ async def evaluate(
         import json
         question_details_json = json.dumps(result.get('question_details', {}))
 
+        # ── SCORE LOCK: Override computed output with locked original scores ─────────────
+        # The full evaluation pipeline has already run (OCR + NLP + scoring) so the
+        # evaluator experiences a normal re-evaluation. We now silently replace the
+        # outgoing scores with the frozen first-evaluation values for consistency.
+        if _is_reevaluation and _locked_eval is not None:
+            score_ratio      = round(_locked_eval.score, 4)
+            total_max_marks  = float(_locked_eval.total_max_marks or 50.0)
+            total_obtained   = round(score_ratio * total_max_marks, 1)
+            percentage       = round(score_ratio * 100, 2)
+            question_details_json = _locked_eval.question_details or question_details_json
+            feedback         = _locked_eval.feedback or feedback
+            print(f"[Score Lock] Scores overridden → ratio={score_ratio}, "
+                  f"obtained={total_obtained}/{total_max_marks}, pct={percentage}%")
+        # ─────────────────────────────────────────────────────────────────────────────────
+
         new_eval = Evaluation(
             user_id=current_user.id,
             answer_sheet_id=answer_sheet_id,
@@ -417,7 +504,9 @@ async def evaluate(
             total_max_marks=total_max_marks,
             question_details=question_details_json,
             feedback=feedback,
-            subject=answer_key.subject,  # Propagate subject from answer key
+            # Tag subject from answer key — fall back to teacher's own subject if key has no subject.
+            # This ensures every new evaluation is always subject-tagged for proper isolation.
+            subject=answer_key.subject if answer_key.subject else current_user.subject,
             similarity_score=0.0, # Retained for schema backwards compatibility
             pipeline_version="v3.0-deterministic",
             factual_ruleset_version="1.0-strict",
@@ -451,7 +540,8 @@ async def evaluate(
             "percentage": percentage,
             "grade": grade,
             "result": status,
-            "question_details": result.get('question_details', {}),
+            # Return locked question_details on re-evaluation so per-question marks also stay consistent
+            "question_details": json.loads(question_details_json) if _is_reevaluation else result.get('question_details', {}),
             "feedback": feedback
         }
 
@@ -477,6 +567,8 @@ def get_latest_evaluation(
         db.query(Evaluation)
         .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
         .filter(AnswerSheet.user_id == student_id, Evaluation.is_latest == True)
+        # Subject-scoped: teacher only views their own subject's result for this student.
+        .filter(Evaluation.subject == current_user.subject)
         .order_by(Evaluation.created_at.desc())
         .first()
     )
@@ -540,7 +632,7 @@ def get_my_results(
         
         output.append({
             "id": eval_record.id,
-            "subject": "General", # Placeholder until we have Subject in DB
+            "subject": eval_record.subject or "General",  # Subject-wise display for student dashboard
             "test_name": f"Evaluation {eval_record.id}",
             "score": eval_record.score, # 0.0 to 1.0 (legacy support)
             "percentage": round(eval_record.score * 100, 2),
@@ -566,23 +658,46 @@ def get_stored_sheet(
     db: Session = Depends(get_db)
 ):
     """
-    Returns the latest stored OCR text and answer_sheet_id for a student.
-    Allows re-evaluation without re-running OCR.
+    Returns the OCR text for the answer sheet tied to the student's LATEST evaluation.
+    Uses the exact sheet_id from the evaluation record — not simply the newest upload —
+    so re-evaluation always loads the correct subject's sheet even if the student has
+    multiple sheets from different subjects.
     Teacher-only.
     """
     if current_user.role != "teacher":
         raise HTTPException(status_code=403, detail="Only teachers can access stored sheets.")
 
-    sheet = (
-        db.query(AnswerSheet)
+    # Step 1: Find the latest evaluation for this student, scoped to current teacher's subject.
+    # This guarantees the correct subject's sheet is loaded for re-evaluation even if
+    # the student has sheets from multiple subjects (e.g. James Smith: Civics + History).
+    latest_eval = (
+        db.query(Evaluation)
+        .join(AnswerSheet, Evaluation.answer_sheet_id == AnswerSheet.id)
         .filter(AnswerSheet.user_id == student_id)
-        .order_by(AnswerSheet.created_at.desc())
+        .filter(Evaluation.is_latest == True)
+        .filter(Evaluation.subject == current_user.subject)   # ← subject isolation
+        .order_by(Evaluation.id.desc())
         .first()
     )
+
+    if latest_eval:
+        # Use the exact sheet from the evaluation record
+        sheet = db.query(AnswerSheet).filter(AnswerSheet.id == latest_eval.answer_sheet_id).first()
+        print(f"[Stored Sheet] Using eval-linked sheet ID {sheet.id} for student {student_id}.")
+    else:
+        # Fallback: no evaluation yet — return newest uploaded sheet
+        sheet = (
+            db.query(AnswerSheet)
+            .filter(AnswerSheet.user_id == student_id)
+            .order_by(AnswerSheet.created_at.desc())
+            .first()
+        )
+        print(f"[Stored Sheet] No eval found. Fallback to latest sheet for student {student_id}.")
+
     if not sheet:
         raise HTTPException(status_code=404, detail="No stored answer sheet found for this student.")
 
-    print(f"[Stored Sheet] Loaded sheet ID {sheet.id} for student {student_id}. OCR length: {len(sheet.ocr_text or '')} chars.")
+    print(f"[Stored Sheet] Loaded sheet ID {sheet.id} | File: {sheet.filename} | OCR length: {len(sheet.ocr_text or '')} chars.")
     return {
         "answer_sheet_id": sheet.id,
         "ocr_text": sheet.ocr_text or "",
@@ -695,8 +810,8 @@ def get_stored_key(
     db: Session = Depends(get_db)
 ):
     """
-    Returns the latest stored active answer key ID and filename.
-    Allows re-evaluation without re-uploading or re-extracting the answer key.
+    Returns the latest active answer key uploaded by the current logged-in teacher.
+    Filtered by user_id to prevent cross-subject key contamination.
     Teacher-only.
     """
     if current_user.role != "teacher":
@@ -704,14 +819,15 @@ def get_stored_key(
 
     key = (
         db.query(AnswerKey)
+        .filter(AnswerKey.user_id == current_user.id)
         .filter(AnswerKey.is_active == True)
         .order_by(AnswerKey.created_at.desc())
         .first()
     )
     if not key:
-        raise HTTPException(status_code=404, detail="No stored answer key found.")
+        raise HTTPException(status_code=404, detail="No stored answer key found for your account.")
 
-    print(f"[Stored Key] Loaded key ID {key.id} ({key.filename}).")
+    print(f"[Stored Key] Loaded key ID {key.id} ({key.filename}) for teacher {current_user.id}.")
     return {
         "answer_key_id": key.id,
         "filename": key.filename

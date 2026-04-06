@@ -40,9 +40,14 @@ def calculate_grade_and_status(score_ratio, custom_max=None):
     grade = "F"
     applied_band = {}
     
-    # 1. Determine Grade
-    for band in policy.get("grade_bands", []):
-        if band["min"] <= obtained_marks <= band["max"]:
+    # Sort bands descending by min to handle floating point numbers perfectly
+    grade_bands = policy.get("grade_bands", [])
+    if not isinstance(grade_bands, list):
+        grade_bands = []
+        
+    sorted_bands = sorted(grade_bands, key=lambda x: x.get("min", 0) if isinstance(x, dict) else 0, reverse=True)
+    for band in sorted_bands:
+        if obtained_marks >= band["min"]:
             grade = band["grade"]
             applied_band = band
             break
